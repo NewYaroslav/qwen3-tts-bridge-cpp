@@ -1,0 +1,6 @@
+[submodule "external/cpp/tiny-process-library"]
+	path = external/cpp/tiny-process-library
+	url = https://gitlab.com/eidheim/tiny-process-library.git
+[submodule "external/python/Qwen3-TTS-streaming"]
+	path = external/python/Qwen3-TTS-streaming
+	url = https://github.com/NewYaroslav/Qwen3-TTS-streaming.git

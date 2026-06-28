@@ -1,0 +1,41 @@
+# Build output
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+
+# Generated release artifacts
+/dist/*
+!/dist/.gitkeep
+
+# Local model weights and downloaded assets
+/models/*
+!/models/.gitkeep
+
+# Python local environments and caches
+/.venv/
+/venv/
+/env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Nuitka and Python packaging output
+*.build/
+*.dist/
+*.onefile-build/
+/worker/*.build/
+/worker/*.dist/
+/worker/*.onefile-build/
+
+# CMake user/local files
+CMakeUserPresets.json
+*.user
+*.suo
+*.vcxproj.user
+
+# Logs and temporary local files
+*.log
+/tmp/
