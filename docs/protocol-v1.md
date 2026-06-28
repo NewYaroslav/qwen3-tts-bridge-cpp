@@ -1,0 +1,649 @@
+# QwenTTSBridge Protocol v1
+
+This document defines the first byte-level protocol used between the C++ client
+and the persistent Qwen TTS worker.
+
+The protocol is transport-neutral. Version 1 is expected to run over worker
+stdin/stdout first, and later over WebSocket without changing message semantics.
+
+## Constants
+
+```text
+QWEN_TTS_BRIDGE_PROTOCOL = 1
+MAGIC = "QTB1"
+MIN_HEADER_SIZE = 24
+MAX_HEADER_SIZE = 256
+BYTE_ORDER = little-endian
+```
+
+All integer fields are unsigned and encoded as little-endian bytes. Payload text
+is UTF-8.
+
+## Frame Header
+
+Every frame starts with a fixed minimum 24-byte header:
+
+```text
+offset  size  type    name
+0       4     bytes   magic
+4       2     u16     protocol_version
+6       2     u16     header_size
+8       2     u16     frame_type
+10      2     u16     flags
+12      4     u32     payload_size
+16      8     u64     request_id
+```
+
+`magic` must be the four ASCII bytes `QTB1`.
+
+`protocol_version` must be `1`.
+
+Protocol v1 does not perform version negotiation inside JSON payloads. If a
+peer receives a frame with an unsupported `protocol_version`, that is a fatal
+framing error for the current transport stream.
+
+`header_size` must be `24` for v1 senders. A receiver must reject values smaller
+than `MIN_HEADER_SIZE` or larger than `MAX_HEADER_SIZE`. If a future compatible
+extension uses a larger header, the receiver must read and discard
+`header_size - 24` extension bytes before reading the payload.
+
+`payload_size` is the number of bytes immediately following the header and any
+header extension bytes.
+
+`request_id` is `0` for session-level frames such as `hello`, `ready`, `ping`,
+`pong`, and `shutdown_ack`. Synthesis requests, request events, request errors,
+cancellation, and audio frames must use a non-zero request ID.
+
+`protocol_version` and `request_id` exist only in the frame header. JSON payloads
+must not duplicate them.
+
+## Request ID Policy
+
+A client must not reuse a non-zero `request_id` while a request with the same ID
+is active.
+
+Request IDs should be monotonically increasing and should not be reused during a
+single worker session.
+
+The worker must reject a duplicate active request ID with:
+
+```text
+category = request_error
+code     = duplicate_request_id
+```
+
+## Payload Limits
+
+The parser must validate `payload_size` before allocating a payload buffer.
+
+Initial limits:
+
+```text
+MAX_CONTROL_PAYLOAD_BYTES = 1 MiB
+MAX_AUDIO_PAYLOAD_BYTES   = 16 MiB
+MAX_ERROR_PAYLOAD_BYTES   = 1 MiB
+MAX_FRAME_PAYLOAD_BYTES   = 16 MiB
+```
+
+Frames that exceed their type-specific limit are fatal framing errors for the
+current transport stream.
+
+`MAX_AUDIO_PAYLOAD_BYTES` is a hard safety limit, not a recommended streaming
+chunk size. Workers should emit smaller streaming chunks:
+
+```text
+RECOMMENDED_AUDIO_CHUNK_DURATION = 20-200 ms
+RECOMMENDED_AUDIO_PAYLOAD_BYTES  <= 64 KiB
+```
+
+At 24 kHz mono s16le, 100 ms is 4800 bytes.
+
+## Frame Types
+
+```text
+0  reserved
+1  control_json
+2  audio_pcm
+3  error_json
+```
+
+Unknown frame types are fatal framing errors.
+
+### `control_json`
+
+Payload is a UTF-8 JSON object.
+
+Every control payload must contain:
+
+```json
+{
+  "message_type": "message_name"
+}
+```
+
+The control payload must not contain `protocol_version` or `request_id`; those
+values are defined by the frame header.
+
+Known client-to-worker control messages:
+
+```text
+hello
+synthesize
+cancel
+ping
+shutdown
+```
+
+Known worker-to-client control messages:
+
+```text
+ready
+queued
+started
+completed
+cancelled
+pong
+shutdown_ack
+```
+
+Message direction is part of the protocol contract. Receiving a known
+`message_type` from an invalid direction is a recoverable `protocol_error` with:
+
+```text
+code = invalid_message_direction
+```
+
+This does not make the byte stream untrustworthy by itself.
+
+The control payload must be a JSON object. `message_type` must be a string.
+Unknown JSON object fields must be ignored unless they are explicitly required
+by protocol v1. Unknown `message_type` values must be rejected. Known fields with
+invalid types must be rejected.
+
+Before the worker sends `ready`:
+
+- the client may send only `hello`, `ping`, or `shutdown`;
+- the worker may send only `ready`, `pong`, `error_json`, or `shutdown_ack`;
+- `synthesize` and `cancel` are invalid before `ready`.
+
+`hello` may be sent only once per worker session. A repeated `hello`, a
+`synthesize` before `ready`, or a new `synthesize` after shutdown has started is
+a recoverable `protocol_error` with:
+
+```text
+code = invalid_session_state
+```
+
+### Handshake
+
+The client starts the session with `hello`:
+
+```json
+{
+  "message_type": "hello",
+  "client_name": "qwen-tts-bridge-cpp",
+  "client_version": "0.2.0"
+}
+```
+
+The worker replies with `ready`:
+
+```json
+{
+  "message_type": "ready",
+  "worker_version": "0.2.0",
+  "session_id": "7dbfa83d7e93427f8fa10f7c7d7f5a5d",
+  "warmed_up": true,
+  "capabilities": {
+    "streaming": true,
+    "cancellation": true,
+    "instructions": true,
+    "voice_clone": false
+  }
+}
+```
+
+`session_id` is generated by the worker for diagnostics and future reconnect
+scenarios. It is not used to route v1 stdio frames.
+
+`ready` means:
+
+- protocol handshake completed;
+- runtime configuration validated;
+- model loaded;
+- required warmup completed when warmup is enabled;
+- the engine is able to accept synthesis requests.
+
+`warmed_up` is an optional diagnostic field. It reports whether warmup was
+actually performed successfully. If warmup is disabled by configuration, `ready`
+may use `warmed_up = false`; the worker is still able to accept `synthesize`,
+but the first request may be slower.
+
+The C++ supervisor must apply a configurable startup timeout while waiting for
+`ready`. On timeout, it may terminate the worker and report a local startup
+timeout error. This is not a wire-level `error_json`.
+
+### Synthesis Request
+
+The `synthesize` payload keeps spoken text separate from style instructions:
+
+```json
+{
+  "message_type": "synthesize",
+  "text": "I thought you were not coming.",
+  "language": "English",
+  "speaker": "default",
+  "instruction": "Speak with relief, but keep a little resentment.",
+  "output": {
+    "sample_format": "s16le",
+    "sample_rate": 24000,
+    "channels": 1
+  }
+}
+```
+
+`output` is the client's requested output format. If the worker cannot satisfy
+it, the worker must return:
+
+```text
+category = request_error
+code     = unsupported_audio_format
+```
+
+### Request Events
+
+`queued` means the worker validated the request and placed it in its internal
+queue. If inference starts immediately, the worker may send `started` without
+first sending `queued`.
+
+```json
+{
+  "message_type": "queued",
+  "position": 3
+}
+```
+
+`position` is optional, one-based, and advisory. `position = 1` means this is
+the next queued request after the currently running request, if any. It is a
+snapshot and may become stale immediately.
+
+`started` means inference has begun and announces the actual audio format for
+following `audio_pcm` frames:
+
+```json
+{
+  "message_type": "started",
+  "audio_format": {
+    "sample_format": "s16le",
+    "sample_rate": 24000,
+    "channels": 1
+  }
+}
+```
+
+`completed` is the terminal success event:
+
+```json
+{
+  "message_type": "completed"
+}
+```
+
+`cancelled` is the terminal cancellation event:
+
+```json
+{
+  "message_type": "cancelled"
+}
+```
+
+### Cancellation
+
+The client cancels a request by sending a `cancel` control payload with the
+target request ID in the frame header:
+
+```json
+{
+  "message_type": "cancel"
+}
+```
+
+Worker behavior:
+
+- if the request is queued, remove it from the queue and send `cancelled`;
+- if the request is running, set the request's cancellation flag;
+- if the request ID is unknown, return `request_error / unknown_request_id`;
+- the engine should check cancellation between streaming steps or chunks;
+- after cancellation is observed, the worker must stop sending `audio_pcm` for
+  that request and send `cancelled`;
+- if cancellation arrives after a known terminal event, the worker may ignore it
+  idempotently.
+
+Cancellation is cooperative. The protocol does not require the worker to abort a
+running PyTorch kernel immediately.
+
+The worker must keep stdin reading independent from blocking inference. Use at
+least a reader thread plus an engine thread, or an async reader with blocking
+inference moved to a worker thread.
+
+### Ping/Pong
+
+Heartbeat is represented as control messages, not a separate frame type.
+
+The client may send:
+
+```json
+{
+  "message_type": "ping",
+  "sequence": 17
+}
+```
+
+The worker replies:
+
+```json
+{
+  "message_type": "pong",
+  "sequence": 17
+}
+```
+
+Ping/pong detects a hung worker. It must not be used as synthesis progress.
+
+Heartbeat timeouts should not be aggressive while streaming or backpressure is
+active. The C++ supervisor should require multiple missed `pong` replies or
+otherwise account for active streaming before declaring the worker hung.
+
+### Shutdown
+
+The client requests graceful worker shutdown with `request_id = 0`:
+
+```json
+{
+  "message_type": "shutdown",
+  "mode": "cancel"
+}
+```
+
+Version 1 supports only `mode = "cancel"`. If `mode` is omitted, `cancel` is the
+default.
+
+On shutdown, the worker must:
+
+- stop accepting new `synthesize` requests;
+- cancel queued and running requests cooperatively;
+- enqueue terminal events for requests that already reached `queued` or
+  `running`;
+- enqueue `shutdown_ack` after those terminal events;
+- flush the serialized stdout writer queue completely;
+- close stdout and exit with code `0`.
+
+The C++ supervisor must use a shutdown timeout. If the timeout expires, it may
+terminate the worker process and complete remaining active requests with a local
+transport or timeout error.
+
+## `audio_pcm`
+
+Payload is raw PCM bytes. It must not be Base64, Z85, or JSON encoded.
+
+Audio format is defined by the preceding `started` control event for the same
+`request_id`. The first implementation should use:
+
+```text
+sample_format = s16le
+sample_rate   = 24000
+channels      = 1
+```
+
+`payload_size` must be a multiple of the sample width times channel count once
+the format is known.
+
+An `audio_pcm` frame must contain at least one complete sample frame. A
+zero-length `audio_pcm` frame is a recoverable protocol violation associated
+with its `request_id`. The client must fail that request locally and must not
+pass an empty audio chunk to the application.
+
+Audio frames for one request are ordered by transport stream order. Frames from
+different request IDs may be interleaved. Frames belonging to the same request
+must preserve their logical order. The first worker implementation may still run
+only one synthesis request at a time.
+
+Protocol v1 does not add an audio chunk sequence number. A worker with
+concurrent internal producers must still serialize writes through one stdout
+writer queue.
+
+## `error_json`
+
+Version 1 `error_json` frames are worker-to-client only.
+
+Payload is a UTF-8 JSON object:
+
+```json
+{
+  "message_type": "error",
+  "category": "model_error",
+  "code": "synthesis_failed",
+  "message": "Detailed diagnostic message."
+}
+```
+
+The payload must not contain `protocol_version` or `request_id`; those values
+are defined by the frame header.
+
+Known wire-level error categories:
+
+```text
+protocol_error
+worker_error
+model_error
+request_error
+timeout
+resource_error
+internal_error
+```
+
+Known wire-level error codes:
+
+```text
+invalid_message_direction
+invalid_json
+payload_not_object
+missing_message_type
+invalid_message_type
+unknown_message_type
+missing_required_field
+invalid_field_type
+invalid_session_state
+duplicate_request_id
+unknown_request_id
+unsupported_audio_format
+synthesis_failed
+worker_not_ready
+shutdown_in_progress
+resource_exhausted
+internal_error
+timeout
+```
+
+`cancelled` is not an error category. It is represented by the terminal
+`cancelled` control message.
+
+`transport_error` is not a wire-level error category. Broken pipes, EOF, failed
+process writes, and worker process exits are local transport errors handled by
+the C++ client and worker supervisor.
+
+Request-level errors must use the related non-zero `request_id`. Session-level
+errors may use `request_id = 0`.
+
+## Flags
+
+Version 1 supports only:
+
+```text
+0x0000  none
+```
+
+All non-zero flags are reserved and must be rejected by a v1 parser.
+
+There is no `final_audio_chunk` flag in v1. The terminal request state comes
+from `completed`, `cancelled`, or `error_json`.
+
+## Request Lifecycle
+
+Allowed request states:
+
+```text
+created
+queued
+running
+completed
+cancelled
+failed
+```
+
+Allowed transitions:
+
+```text
+created -> queued
+created -> running
+created -> failed
+queued -> running
+queued -> cancelled
+queued -> failed
+running -> completed
+running -> cancelled
+running -> failed
+```
+
+Terminal wire events:
+
+```text
+completed control_json
+cancelled control_json
+error_json
+```
+
+Each request that reaches `queued` or `running` must produce exactly one
+terminal event.
+
+Late audio frames received after a terminal event must be discarded and logged.
+
+For a successful request, `completed` must be emitted only after all `audio_pcm`
+frames for that request have been placed before `completed` in the same
+serialized output queue.
+
+After `cancelled` or `error_json` is emitted for a request, the worker must not
+emit additional `audio_pcm` frames for that request.
+
+## Backpressure
+
+Stdio and WebSocket transports both provide natural backpressure when the peer
+cannot receive bytes fast enough. The worker must not bypass that with
+unbounded queues.
+
+All outgoing worker frames must pass through one bounded serialized output queue
+and must be written by one writer thread or task. Enqueue order defines the
+observable order on stdout.
+
+When the output queue is full, producers must block or await capacity. Audio
+frames must not be silently dropped.
+
+The client may also use bounded incoming event queues. If client-side queues
+overflow, the client should treat it as a local resource error, close the
+transport, and fail active requests.
+
+## Stdio Transport Rules
+
+For version 1 over stdio:
+
+```text
+stdin   client -> worker frames
+stdout  worker -> client frames
+stderr  worker logs only
+```
+
+The worker must never write logs, progress bars, tracebacks, warnings, or other
+human text to stdout. Stdout is binary protocol traffic only.
+
+The client and worker must not use line-oriented parsing. One OS read may
+contain a partial frame, one complete frame, or several frames.
+
+## WebSocket Transport Rules
+
+WebSocket support is not part of the first implementation, but protocol v1
+reserves a simple mapping for it.
+
+When transported over WebSocket, each WebSocket binary message must contain
+exactly one complete QTB frame: header, optional header extension bytes, and
+payload. Text WebSocket messages are not permitted.
+
+The WebSocket message boundary must not be used to change request semantics.
+The QTB frame header remains authoritative.
+
+## Parser Requirements
+
+A parser must:
+
+- validate `magic` before interpreting the frame;
+- validate `protocol_version`;
+- validate `header_size`;
+- read and discard compatible header extension bytes before payload bytes;
+- validate `frame_type`;
+- validate supported `flags`;
+- validate `payload_size` against type-specific limits before allocation;
+- reject control and error payloads that are not valid UTF-8 JSON;
+- reject control and error JSON values that are not objects;
+- reject control and error payloads without `message_type`;
+- reject `message_type` values that are not strings;
+- reject control and error payloads that duplicate `protocol_version` or
+  `request_id`;
+- preserve frame order for events from the same stream.
+
+## Protocol Errors
+
+Recoverable request or message errors have structurally valid framing. Examples:
+
+- unknown `message_type`;
+- invalid JSON syntax;
+- JSON value is not an object;
+- missing required payload field;
+- invalid field type;
+- unsupported audio format;
+- unknown request ID;
+- duplicate active request ID.
+
+When possible, the worker should report recoverable request errors with
+`error_json`.
+
+If the C++ client detects a recoverable protocol error in a structurally valid
+worker frame, it handles the error locally. It may fail the affected request or
+close the transport according to severity. Protocol v1 does not require the
+client to report such errors back to the worker.
+
+Fatal framing errors make the current byte stream untrustworthy. Examples:
+
+- invalid `magic`;
+- unsupported `protocol_version`;
+- `header_size < MIN_HEADER_SIZE`;
+- `header_size > MAX_HEADER_SIZE`;
+- unknown `frame_type`;
+- unsupported non-zero `flags`;
+- payload exceeds the absolute or type-specific limit;
+- EOF before the full header or payload is read.
+
+A framing-level protocol violation is fatal for the current transport stream.
+The receiver must not attempt byte-by-byte resynchronization in protocol v1.
+The byte sequence `QTB1` may legally appear inside PCM payload data.
+
+On a fatal framing error, the receiver should close the transport, fail all
+active requests locally, and let the supervisor terminate or restart the worker
+when appropriate.
+
+## Version Freeze Policy
+
+Protocol v1 is frozen for implementation.
+
+After protocol v1 is implemented, semantic changes must be introduced as
+compatible v1 extensions or as protocol v2. Do not silently change existing v1
+field meanings, required fields, request lifecycle semantics, or error-category
+semantics under the same protocol version.

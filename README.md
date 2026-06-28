@@ -101,7 +101,6 @@ struct PcmChunk {
     std::vector<std::int16_t> samples;
     std::uint32_t sample_rate = 24000;
     std::uint16_t channels = 1;
-    bool is_final = false;
 };
 ```
 
@@ -155,12 +154,16 @@ The protocol should keep spoken text and style instruction separate:
 
 ```json
 {
-  "type": "synthesize",
-  "request_id": 42,
+  "message_type": "synthesize",
   "text": "I thought you were not coming.",
   "language": "English",
   "speaker": "default",
-  "instruction": "Speak with relief, but keep a little resentment."
+  "instruction": "Speak with relief, but keep a little resentment.",
+  "output": {
+    "sample_format": "s16le",
+    "sample_rate": 24000,
+    "channels": 1
+  }
 }
 ```
 
@@ -232,27 +235,25 @@ request state live above the transport.
 
 The protocol must be versioned from the beginning.
 
+The byte-level v1 specification lives in
+[docs/protocol-v1.md](docs/protocol-v1.md).
+
 Suggested frame header fields:
 
 ```text
 magic
 protocol_version
+header_size
 frame_type
 flags
 payload_size
 request_id
 ```
 
-Control payloads may be UTF-8 JSON. PCM audio must use binary frames and must
-not be Base64-encoded.
-
-Every control message should contain:
-
-```text
-protocol_version
-type
-request_id
-```
+The frame header owns protocol versioning, payload size, frame type, and
+`request_id`. Control payloads may be UTF-8 JSON and use `message_type`; they do
+not duplicate `protocol_version` or `request_id`. PCM audio must use binary
+frames and must not be Base64-encoded.
 
 Request terminal states:
 
@@ -262,12 +263,14 @@ cancelled
 failed
 ```
 
-Every accepted request must produce exactly one terminal event.
+Every request that reaches `queued` or `running` must produce exactly one
+terminal event.
 
 Request lifecycle should include queued async work:
 
 ```text
-created -> accepted -> queued -> running -> completed
+created -> queued -> running -> completed
+created -> running
 queued -> cancelled
 running -> cancelled
 running -> failed

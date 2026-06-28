@@ -442,7 +442,7 @@ stdin reader thread / async task
     accepts synthesize and cancel commands
 
 worker request queue
-    stores accepted synthesis work
+    stores queued synthesis work
 
 engine thread
     runs one inference request at a time
@@ -459,37 +459,67 @@ static KV-cache complexity.
 
 Create a versioned protocol before adding real Qwen integration.
 
-The first protocol version may be:
+The canonical byte-level protocol v1 specification lives in:
+
+```text
+docs/protocol-v1.md
+```
+
+Follow that document for exact frame layout, JSON fields, message directions,
+error codes, request lifecycle, cancellation, backpressure, and transport rules.
+
+The first protocol version is:
 
 ```text
 QWEN_TTS_BRIDGE_PROTOCOL = 1
 ```
 
-Every control payload must contain:
-
-```text
-protocol_version
-type
-request_id
-```
-
-Use framed messages. Never rely on one `read()` matching one logical message.
-
-Suggested frame header fields:
+Frame header fields:
 
 ```text
 magic
 protocol_version
+header_size
 frame_type
 flags
 payload_size
 request_id
 ```
 
+`protocol_version` and `request_id` belong to the frame header only. Control and
+error JSON payloads must not duplicate them.
+
+Control payloads use:
+
+```json
+{
+  "message_type": "synthesize"
+}
+```
+
+Use framed messages. Never rely on one `read()` matching one logical message.
+
+Version 1 frame types:
+
+```text
+0 reserved
+1 control_json
+2 audio_pcm
+3 error_json
+```
+
 Use fixed-width integer fields and define byte order explicitly.
 
 Control payloads may be UTF-8 JSON. PCM data must use binary frames. Do not
-encode audio as Base64.
+encode audio as Base64, Z85, or JSON.
+
+Heartbeat is `ping` / `pong` over `control_json`, not a separate frame type.
+
+Version 1 supports no non-zero flags. Do not add `final_audio_chunk`; terminal
+state is represented by `completed`, `cancelled`, or `error_json`.
+
+For WebSocket support later, one WebSocket binary message must contain exactly
+one complete QTB frame. Text WebSocket messages are not allowed.
 
 If C++ JSON parsing becomes more than a narrow known-field parser, ask the user
 before adding a JSON dependency such as `nlohmann/json`.
@@ -500,7 +530,6 @@ A synthesis request has these states:
 
 ```text
 created
-accepted
 queued
 running
 completed
@@ -511,21 +540,20 @@ failed
 Allowed transitions:
 
 ```text
-created -> accepted
-accepted -> queued
-accepted -> running
+created -> queued
+created -> running
+created -> failed
 queued -> running
 queued -> cancelled
 queued -> failed
 running -> completed
 running -> cancelled
 running -> failed
-accepted -> cancelled
-accepted -> failed
 ```
 
-A request must produce exactly one terminal state. Late audio chunks received
-after a terminal state must be discarded and logged.
+Every request that reaches `queued` or `running` must produce exactly one
+terminal state. Late audio chunks received after a terminal state must be
+discarded and logged.
 
 ## Threading Requirements
 
@@ -576,13 +604,13 @@ to a worker thread.
 Separate error categories:
 
 ```text
-transport_error
 protocol_error
 worker_error
 model_error
 request_error
-cancelled
 timeout
+resource_error
+internal_error
 ```
 
 Every error should include:
@@ -593,6 +621,11 @@ code
 message
 request_id
 ```
+
+`cancelled` is not an error category. It is a terminal control event.
+
+`transport_error` is local to the C++ transport/supervisor layer and is not a
+wire-level `error_json` category.
 
 Do not use worker process termination as the normal way to signal synthesis
 errors.
@@ -637,7 +670,7 @@ model loaded
 warmup started
 warmup completed
 client connected
-request accepted
+request queued
 first PCM chunk produced
 request completed
 request cancelled
@@ -698,10 +731,13 @@ Create tests in this order.
 - exchange health-check messages over stdio;
 - submit async synthesis requests without blocking the caller;
 - queue multiple requests while the mock engine runs one at a time;
+- fill the worker output queue with a slow client and verify memory remains
+  bounded;
 - simulate PCM streaming;
 - simulate worker errors;
 - simulate unexpected worker termination;
 - verify stderr logging does not corrupt stdout protocol frames.
+- verify `pong` may be delayed by backpressure but is eventually emitted.
 
 ### Phase 3: Request Lifecycle Tests
 
@@ -712,6 +748,9 @@ Create tests in this order.
 - discard late chunks after terminal state;
 - cancel active synthesis;
 - cancel queued synthesis;
+- verify `completed` never overtakes the last queued PCM frame;
+- verify `cancelled` does not overtake frames already queued for the request;
+- verify shutdown drains terminal events and `shutdown_ack`;
 - recover after cancellation.
 
 ### Phase 4: Qwen Integration Tests
