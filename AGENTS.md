@@ -19,9 +19,10 @@ and model-specific streaming. The C++ side owns the public API, process
 supervision, transport, protocol parsing, request state, callback dispatch,
 cancellation, and delivery of PCM chunks to the application.
 
-The first transport is stdin/stdout to a persistent local worker process. A
-WebSocket transport is planned later and must be possible without redesigning
-the public API or protocol layer.
+The first transport is stdin/stdout to a persistent local worker process. The
+first implementation line should target the async-first `0.2` shape rather than
+a sync-only `0.1` API. A WebSocket transport is planned later and must be
+possible without redesigning the public API or protocol layer.
 
 ## Always Follow
 
@@ -34,6 +35,9 @@ the public API or protocol layer.
 - Do not add Boost only for process handling, IPC, JSON, or WebSocket support.
 - Keep the worker alive between synthesis requests.
 - Do not reload the model for every request.
+- Design the C++ API as async-first: request submission returns quickly, audio
+  arrives through callbacks, and cancellation is request-ID based.
+- Treat synchronous helpers as optional wrappers over the async core.
 - Keep transport, protocol, worker supervision, and synthesis request logic
   separated.
 - Do not introduce network-accessible APIs in the first implementation.
@@ -163,7 +167,8 @@ runtime belongs to generated `dist/` output produced by Nuitka.
 
 ## Public C++ API Direction
 
-The public API should hide the worker process and expose a persistent client.
+The public API should hide the worker process and expose a persistent async
+client.
 
 Example target usage:
 
@@ -171,15 +176,19 @@ Example target usage:
 QwenTtsClient tts;
 
 tts.start("qwen_tts_worker.exe");
-tts.synthesize("First phrase", on_audio);
-tts.synthesize("Second phrase", on_audio);
-tts.synthesize("Third phrase", on_audio);
+const auto first_id = tts.synthesize_async("First phrase", first_callbacks);
+const auto second_id = tts.synthesize_async("Second phrase", second_callbacks);
+const auto third_id = tts.synthesize_async("Third phrase", third_callbacks);
+
+tts.cancel(second_id);
 
 tts.stop();
 ```
 
 The implementation must start the worker once, keep it running, and send many
-requests through the same worker session.
+requests through the same worker session. `synthesize_async()` must not block on
+model inference; it should return after the request is accepted into the local
+client pipeline or fail fast if it cannot be accepted.
 
 The public API should also support a more explicit request object:
 
@@ -192,6 +201,32 @@ struct TtsRequest {
     std::string instruction;       // emotion, whispering, prosody, etc.
 };
 ```
+
+Target callback API shape:
+
+```cpp
+using RequestId = std::uint64_t;
+
+struct TtsCallbacks {
+    std::function<void(const PcmChunk&)> on_audio;
+    std::function<void()> on_completed;
+    std::function<void(const TtsError&)> on_error;
+    std::function<void()> on_cancelled;
+};
+
+class QwenTtsClient {
+public:
+    RequestId synthesize_async(
+        TtsRequest request,
+        TtsCallbacks callbacks);
+
+    bool cancel(RequestId request_id);
+};
+```
+
+If a synchronous API is added, implement it as a small wrapper that waits on the
+async callbacks. Do not let the synchronous wrapper define protocol, transport,
+or worker design.
 
 Do not hardcode a closed set of emotions in C++ for the first version. Qwen3-TTS
 supports natural-language voice and style control, so the bridge should pass
@@ -253,6 +288,9 @@ Dispatcher
 
 AudioQueue
     buffers PCM chunks and applies backpressure policy
+
+OutgoingRequestQueue
+    accepts async submissions and feeds the writer thread
 ```
 
 Dependency direction:
@@ -272,6 +310,26 @@ code.
 `ITransport` must not know the semantic meaning of synthesis requests.
 
 `QwenTtsClient` must not parse model-specific internals.
+
+The C++ runtime model should be:
+
+```text
+application threads
+    -> QwenTtsClient::synthesize_async()
+    -> outgoing request queue
+    -> writer thread
+    -> worker stdin
+
+worker stdout
+    -> transport reader thread/callback
+    -> Protocol frame parser
+    -> incoming event queue
+    -> dispatcher thread
+    -> user callbacks
+```
+
+All frames and events must carry `request_id` so responses can be routed to the
+correct callback set.
 
 ## Transport Contract
 
@@ -319,6 +377,8 @@ For `StdIoTransport`:
 - the worker must never write human-readable logs to stdout;
 - stdout writes must be binary, flushed, and frame-based;
 - do not use line-oriented parsing for protocol traffic.
+- do not confuse stdio transport with synchronous behavior; stdio is fully
+  compatible with an async request API and streaming callbacks.
 
 ## Python Worker Architecture
 
@@ -329,7 +389,7 @@ main.py
     entry point and argument parsing
 
 stdio_server.py
-    stdin/stdout IPC server and request lifecycle
+    stdin/stdout IPC server, request queue, and request lifecycle
 
 protocol.py
     frame serialization, parsing, and validation
@@ -373,6 +433,27 @@ class TtsEngine:
 
 Keep the mock engine available after Qwen integration so protocol, transport,
 and packaging tests can run without CUDA.
+
+The worker should accept many requests but may run model inference
+sequentially in the first implementation:
+
+```text
+stdin reader thread / async task
+    accepts synthesize and cancel commands
+
+worker request queue
+    stores accepted synthesis work
+
+engine thread
+    runs one inference request at a time
+
+stdout writer queue
+    serializes protocol and PCM frames
+```
+
+Async API does not require concurrent GPU inference. Do not add parallel model
+execution until benchmarks show it is worth the extra VRAM, CUDA Graphs, and
+static KV-cache complexity.
 
 ## Protocol Requirements
 
@@ -420,6 +501,7 @@ A synthesis request has these states:
 ```text
 created
 accepted
+queued
 running
 completed
 cancelled
@@ -430,7 +512,11 @@ Allowed transitions:
 
 ```text
 created -> accepted
+accepted -> queued
 accepted -> running
+queued -> running
+queued -> cancelled
+queued -> failed
 running -> completed
 running -> cancelled
 running -> failed
@@ -448,7 +534,13 @@ The transport read loop must not invoke user callbacks directly.
 Recommended C++ flow:
 
 ```text
-transport read callback
+application thread
+    -> synthesize_async()
+    -> outgoing request queue
+    -> writer thread
+    -> transport send
+
+transport read callback/thread
     -> protocol parser
     -> event queue
     -> dispatcher thread
@@ -459,6 +551,9 @@ Protect request state with explicit synchronization. Do not hold a mutex while
 calling application callbacks.
 
 Document which public methods block and which are safe to call from callbacks.
+`synthesize_async()` should not wait for synthesis completion. `stop()` may
+block during deterministic shutdown. `cancel()` should enqueue a cancel command
+quickly and report whether the request was known locally.
 
 Worker shutdown must be deterministic:
 
@@ -470,6 +565,11 @@ wait for worker exit up to timeout
 terminate as fallback
 join transport and dispatcher threads
 ```
+
+For cancellation to work during generation, the Python worker must not perform
+blocking inference in the same loop that reads stdin. Use at least a reader
+thread plus an engine thread, or an asyncio reader with blocking inference moved
+to a worker thread.
 
 ## Error Model
 
@@ -596,6 +696,8 @@ Create tests in this order.
 
 - start and stop worker;
 - exchange health-check messages over stdio;
+- submit async synthesis requests without blocking the caller;
+- queue multiple requests while the mock engine runs one at a time;
 - simulate PCM streaming;
 - simulate worker errors;
 - simulate unexpected worker termination;
@@ -604,10 +706,12 @@ Create tests in this order.
 ### Phase 3: Request Lifecycle Tests
 
 - submit multiple sequential requests without restarting the worker;
+- submit multiple queued async requests;
 - preserve PCM chunk order per request;
 - deliver exactly one terminal event;
 - discard late chunks after terminal state;
 - cancel active synthesis;
+- cancel queued synthesis;
 - recover after cancellation.
 
 ### Phase 4: Qwen Integration Tests
@@ -637,8 +741,10 @@ Follow this order unless a blocking technical reason requires a change.
 4. Add protocol unit tests.
 5. Implement the Python mock worker over stdin/stdout.
 6. Implement `StdIoTransport` with tiny-process-library.
-7. Add a minimal console example that writes received PCM into a WAV file.
-8. Add request tracking, callback dispatch, and cancellation.
+7. Add the async `QwenTtsClient` core: request IDs, active request table,
+   outgoing queue, reader/writer flow, callback dispatch, and cancellation.
+8. Add a minimal console example that writes received PCM into a WAV file
+   through async callbacks.
 9. Introduce the Python `TtsEngine` abstraction.
 10. Integrate `external/python/Qwen3-TTS-streaming/`.
 11. Add model loading, CUDA device selection, and full-audio synthesis.
@@ -659,9 +765,11 @@ The first usable version is complete when:
 - the C++ example starts the packaged worker;
 - the worker loads Qwen3-TTS once;
 - the C++ client sends a synthesis request;
+- `synthesize_async()` returns without waiting for inference completion;
 - PCM chunks are returned incrementally;
 - the chunks can be saved into a valid WAV file;
 - cancellation works;
+- queued requests are supported even if worker inference is sequential;
 - errors are returned as structured protocol messages;
 - the worker can process multiple sequential requests;
 - the target machine does not require a separate Python installation;

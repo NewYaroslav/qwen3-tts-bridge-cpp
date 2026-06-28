@@ -13,6 +13,7 @@ Status: early architecture and repository bootstrap.
 ## Goals
 
 - provide a simple C++17 API for Qwen3-TTS;
+- make the C++ API async-first from the first usable implementation;
 - isolate Python, PyTorch, CUDA, and model code in a separate worker process;
 - keep the worker and model alive between requests;
 - support low-latency streaming PCM output;
@@ -51,7 +52,9 @@ Qwen3-TTS streaming engine
 ```
 
 The C++ application starts and supervises the worker process. The first
-transport uses the worker stdin/stdout streams. Later, the same protocol should
+transport uses the worker stdin/stdout streams. This does not make the public
+API synchronous: request submission can return immediately while reader, writer,
+and dispatcher threads handle streaming frames. Later, the same protocol should
 be usable through a WebSocket transport.
 
 The worker:
@@ -66,15 +69,18 @@ The worker:
 ## C++ API Direction
 
 The public API should feel like a normal C++ library, not like a command-line
-wrapper around Python.
+wrapper around Python. The core API should be async-first; any synchronous API
+should be a thin helper built on top of the async callbacks.
 
 ```cpp
 QwenTtsClient tts;
 
 tts.start("qwen_tts_worker.exe");
-tts.synthesize("First phrase", on_audio);
-tts.synthesize("Second phrase", on_audio);
-tts.synthesize("Third phrase", on_audio);
+const auto first_id = tts.synthesize_async("First phrase", first_callbacks);
+const auto second_id = tts.synthesize_async("Second phrase", second_callbacks);
+const auto third_id = tts.synthesize_async("Third phrase", third_callbacks);
+
+tts.cancel(second_id);
 
 tts.stop();
 ```
@@ -98,6 +104,45 @@ struct PcmChunk {
     bool is_final = false;
 };
 ```
+
+One possible callback shape:
+
+```cpp
+using RequestId = std::uint64_t;
+
+struct TtsCallbacks {
+    std::function<void(const PcmChunk&)> on_audio;
+    std::function<void()> on_completed;
+    std::function<void(const TtsError&)> on_error;
+    std::function<void()> on_cancelled;
+};
+
+class QwenTtsClient {
+public:
+    RequestId synthesize_async(
+        TtsRequest request,
+        TtsCallbacks callbacks);
+
+    bool cancel(RequestId request_id);
+};
+```
+
+Async API and parallel inference are separate decisions. The first worker can
+accept and queue multiple requests while running GPU inference sequentially:
+
+```text
+C++ accepts many requests
+        |
+        v
+worker request queue
+        |
+        v
+GPU synthesizes one request at a time
+```
+
+Parallel model inference can be evaluated later because it may increase VRAM
+usage, conflict with static KV-cache or CUDA Graphs, and hurt per-request
+latency.
 
 Emotional speech, whispering, speaking rate, prosody, and similar controls
 should be passed to the worker as UTF-8 text or a natural-language style
@@ -144,6 +189,23 @@ stderr  worker logs only
 
 Worker logs must never be written to stdout because stdout is reserved for
 protocol frames and binary PCM data.
+
+Recommended runtime flow:
+
+```text
+application threads
+        |
+        v
+QwenTtsClient::synthesize_async()
+        |
+        v
+outgoing request queue -> writer thread -> stdin
+
+stdout -> reader thread -> frame parser -> event queue -> dispatcher thread
+        |
+        v
+user callbacks
+```
 
 The transport layer should remain byte-oriented:
 
@@ -201,6 +263,15 @@ failed
 ```
 
 Every accepted request must produce exactly one terminal event.
+
+Request lifecycle should include queued async work:
+
+```text
+created -> accepted -> queued -> running -> completed
+queued -> cancelled
+running -> cancelled
+running -> failed
+```
 
 ## Repository Layout
 
@@ -280,11 +351,14 @@ distributions are large and often need runtime files next to the executable.
 - exchange health-check messages;
 - stream deterministic test PCM data.
 
-### Milestone 2: Persistent Client
+### Milestone 2: Async Persistent Client
 
 - add `QwenTtsClient`;
 - keep the worker alive across multiple requests;
-- add request IDs, callbacks, cancellation, and terminal events;
+- add `synthesize_async()`;
+- add request IDs, active request tracking, callbacks, cancellation, and
+  terminal events;
+- add outgoing and incoming queues;
 - save streamed PCM into a WAV file from a C++ example.
 
 ### Milestone 3: Qwen3-TTS Integration
@@ -308,6 +382,30 @@ distributions are large and often need runtime files next to the executable.
 - capture stderr diagnostics;
 - add forced termination fallback;
 - evaluate WebSocket transport with Simple-WebSocket-Server and asio.
+
+## Roadmap Shape
+
+The project should skip a sync-only public API and aim directly at the async
+`0.2` shape:
+
+```text
+0.2:
+    persistent worker
+    stdio transport
+    async C++ API
+    request queue
+    streaming callbacks
+    cancel
+    heartbeat
+    restart
+
+0.3:
+    optional WebSocket transport
+    optional external clients
+```
+
+WebSocket is not required for async behavior. It is only a different connection
+model.
 
 ## References
 
