@@ -22,6 +22,10 @@ add_subdirectory("${QWEN_TTS_BRIDGE_EXTERNAL_CPP_DIR}/tiny-process-library" EXCL
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 add_subdirectory("${QWEN_TTS_BRIDGE_EXTERNAL_CPP_DIR}/nlohmann-json" EXCLUDE_FROM_ALL)
 
+if(QWEN_TTS_BRIDGE_BUILD_EXAMPLES OR QWEN_TTS_BRIDGE_BUILD_TESTS)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+endif()
+
 if(WIN32)
     target_compile_definitions(tiny-process-library
         PUBLIC
@@ -58,6 +62,30 @@ target_link_libraries(qwen_tts_bridge
         tiny-process-library::tiny-process-library
 )
 
+if(QWEN_TTS_BRIDGE_BUILD_EXAMPLES)
+    set(QWEN_TTS_BRIDGE_EXAMPLE_PYTHON_EXECUTABLE "")
+    if(Python3_Interpreter_FOUND)
+        set(QWEN_TTS_BRIDGE_EXAMPLE_PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+    endif()
+
+    add_executable(qwen_tts_save_wav
+        examples/SaveWavCallbacks.cpp
+        examples/WavWriter.cpp
+        examples/qwen_tts_save_wav.cpp
+    )
+
+    target_link_libraries(qwen_tts_save_wav
+        PRIVATE
+            QwenTTSBridge::qwen_tts_bridge
+    )
+
+    target_compile_definitions(qwen_tts_save_wav
+        PRIVATE
+            QWEN_TTS_BRIDGE_EXAMPLE_PYTHON_EXECUTABLE="${QWEN_TTS_BRIDGE_EXAMPLE_PYTHON_EXECUTABLE}"
+            QWEN_TTS_BRIDGE_EXAMPLE_WORKER_DIR="${QWEN_TTS_BRIDGE_WORKER_DIR}"
+    )
+endif()
+
 if(QWEN_TTS_BRIDGE_BUILD_TESTS)
     enable_testing()
 
@@ -83,7 +111,33 @@ if(QWEN_TTS_BRIDGE_BUILD_TESTS)
 
     add_test(NAME control_codec_test COMMAND control_codec_test)
 
-    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(QWEN_TTS_BRIDGE_BUILD_EXAMPLES)
+        add_executable(qwen_tts_save_wav_callbacks_test
+            examples/SaveWavCallbacks.cpp
+            examples/WavWriter.cpp
+            tests/qwen_tts_save_wav_callbacks_test.cpp
+        )
+
+        target_include_directories(qwen_tts_save_wav_callbacks_test
+            PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/examples"
+        )
+
+        target_link_libraries(qwen_tts_save_wav_callbacks_test
+            PRIVATE
+                QwenTTSBridge::qwen_tts_bridge
+        )
+
+        target_compile_definitions(qwen_tts_save_wav_callbacks_test
+            PRIVATE
+                QWEN_TTS_BRIDGE_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}"
+        )
+
+        add_test(
+            NAME qwen_tts_save_wav_callbacks_test
+            COMMAND qwen_tts_save_wav_callbacks_test
+        )
+    endif()
 
     if(Python3_Interpreter_FOUND)
         add_executable(stdio_transport_test
@@ -136,6 +190,32 @@ if(QWEN_TTS_BRIDGE_BUILD_TESTS)
         )
 
         add_test(NAME qwen_tts_client_test COMMAND qwen_tts_client_test)
+
+        if(QWEN_TTS_BRIDGE_BUILD_EXAMPLES)
+            add_test(
+                NAME qwen_tts_save_wav_mock_example
+                COMMAND qwen_tts_save_wav
+                    --mock
+                    --output "${CMAKE_CURRENT_BINARY_DIR}/qwen_tts_save_wav_mock.wav"
+                    --text "Example synthesis request"
+                    --mock-chunks 2
+                    --request-timeout-ms 10000
+            )
+            add_test(
+                NAME qwen_tts_save_wav_mock_verify
+                COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/python/verify_wav.py"
+                    "${CMAKE_CURRENT_BINARY_DIR}/qwen_tts_save_wav_mock.wav"
+                    --sample-rate 24000
+                    --channels 1
+                    --bits-per-sample 16
+                    --min-data-bytes 1
+            )
+            set_tests_properties(qwen_tts_save_wav_mock_verify
+                PROPERTIES
+                    DEPENDS qwen_tts_save_wav_mock_example
+            )
+        endif()
     else()
         message(WARNING "Python3 interpreter not found; stdio/worker session tests will not be built")
     endif()
