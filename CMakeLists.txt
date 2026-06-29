@@ -18,16 +18,30 @@ set(QWEN_TTS_BRIDGE_WORKER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/worker")
 set(QWEN_TTS_BRIDGE_EXTERNAL_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/cpp")
 set(QWEN_TTS_BRIDGE_EXTERNAL_PYTHON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/python")
 
-add_library(qwen_tts_bridge INTERFACE)
+add_library(qwen_tts_bridge
+    src/qwen_tts_bridge/protocol/framing/FrameCodec.cpp
+    src/qwen_tts_bridge/protocol/framing/FrameParser.cpp
+)
 add_library(QwenTTSBridge::qwen_tts_bridge ALIAS qwen_tts_bridge)
 
-target_compile_features(qwen_tts_bridge INTERFACE cxx_std_17)
+target_compile_features(qwen_tts_bridge PUBLIC cxx_std_17)
 
 target_include_directories(qwen_tts_bridge
-    INTERFACE
+    PUBLIC
         "${QWEN_TTS_BRIDGE_SRC_DIR}"
 )
 
 if(QWEN_TTS_BRIDGE_BUILD_TESTS)
     enable_testing()
+
+    add_executable(protocol_frame_test
+        tests/protocol_frame_test.cpp
+    )
+
+    target_link_libraries(protocol_frame_test
+        PRIVATE
+            QwenTTSBridge::qwen_tts_bridge
+    )
+
+    add_test(NAME protocol_frame_test COMMAND protocol_frame_test)
 endif()
