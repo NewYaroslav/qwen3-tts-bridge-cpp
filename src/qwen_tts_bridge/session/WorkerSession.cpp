@@ -22,6 +22,13 @@ WorkerSessionEvent make_protocol_error(std::string message) {
     return event;
 }
 
+WorkerSessionEvent make_transport_error(std::string message) {
+    WorkerSessionEvent event;
+    event.type = WorkerSessionEventType::TransportError;
+    event.message = std::move(message);
+    return event;
+}
+
 bool is_client_to_worker_control(ControlMessageType message_type) {
     return message_type == ControlMessageType::Hello ||
         message_type == ControlMessageType::Synthesize ||
@@ -276,7 +283,24 @@ bool WorkerSession::send_control_frame(
         mark_outbound_control_locked(request_id, control_message_type(message));
     }
 
-    return transport_->send(encoded.bytes.data(), encoded.bytes.size());
+    if (transport_->send(encoded.bytes.data(), encoded.bytes.size())) {
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == WorkerSessionState::Starting ||
+        state_ == WorkerSessionState::Ready) {
+        fail_with_event_locked(
+            make_transport_error("transport rejected outbound control frame"),
+            true);
+    }
+    else {
+        enqueue_event_locked(
+            make_transport_error("transport rejected outbound control frame"),
+            true);
+    }
+    notify_state_locked();
+    return false;
 }
 
 void WorkerSession::handle_bytes(ITransport::Bytes bytes) {
@@ -316,9 +340,7 @@ void WorkerSession::handle_bytes(ITransport::Bytes bytes) {
 
 void WorkerSession::handle_transport_error(std::string message) {
     std::lock_guard<std::mutex> lock(mutex_);
-    WorkerSessionEvent event;
-    event.type = WorkerSessionEventType::TransportError;
-    event.message = std::move(message);
+    WorkerSessionEvent event = make_transport_error(std::move(message));
     if (state_ == WorkerSessionState::Starting ||
         state_ == WorkerSessionState::Ready) {
         fail_with_event_locked(std::move(event), true);

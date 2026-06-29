@@ -74,6 +74,7 @@ std::vector<std::byte> audio_frame_bytes(RequestId request_id) {
 class ScriptedTransport final : public ITransport {
 public:
     bool start_return = true;
+    std::vector<bool> send_results;
     std::vector<Bytes> chunks_on_send;
     std::vector<std::string> errors_on_send;
     bool exit_on_send = false;
@@ -97,6 +98,15 @@ public:
         }
 
         ++send_count;
+        bool send_result = true;
+        if (!send_results.empty()) {
+            send_result = send_results.front();
+            send_results.erase(send_results.begin());
+        }
+        if (!send_result) {
+            return false;
+        }
+
         for (const auto& error : errors_on_send) {
             error_handler_(error);
         }
@@ -380,6 +390,40 @@ void test_start_fails_on_transport_error() {
     CHECK(event.message.find("scripted") != std::string::npos);
 }
 
+void test_start_fails_on_hello_send_failure() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->send_results.push_back(false);
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    const auto started = std::chrono::steady_clock::now();
+    CHECK(!session.start());
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    CHECK(elapsed < std::chrono::seconds(2));
+
+    const auto event = wait_for_event(session, WorkerSessionEventType::TransportError);
+    CHECK(event.message.find("rejected outbound control") != std::string::npos);
+    CHECK(!session.is_ready());
+    CHECK(!session.is_running());
+}
+
+void test_send_control_failure_reports_transport_error() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->send_results.push_back(true);
+    transport->send_results.push_back(false);
+    transport->chunks_on_send.push_back(ready_frame_bytes());
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(session.start());
+    wait_for_control(session, ControlMessageType::Ready, 0);
+
+    PingMessage ping;
+    CHECK(!session.send_control(0, ControlMessage{ping}));
+
+    const auto event = wait_for_event(session, WorkerSessionEventType::TransportError);
+    CHECK(event.message.find("rejected outbound control") != std::string::npos);
+    CHECK(session.state() == WorkerSessionState::Failed);
+}
+
 void test_queue_overflow_prevents_startup_success() {
     auto transport = std::make_unique<ScriptedTransport>();
     transport->chunks_on_send.push_back(ready_frame_bytes());
@@ -425,6 +469,8 @@ int main() {
     test_start_rejects_audio_before_ready();
     test_start_fails_on_exit_before_ready();
     test_start_fails_on_transport_error();
+    test_start_fails_on_hello_send_failure();
+    test_send_control_failure_reports_transport_error();
     test_queue_overflow_prevents_startup_success();
     test_invalid_options_and_repeated_start_are_rejected();
     return 0;
