@@ -1,16 +1,14 @@
-#include "WavWriter.hpp"
+#include "SaveWavCallbacks.hpp"
 
 #include <qwen_tts_bridge/client.hpp>
 #include <qwen_tts_bridge/transport.hpp>
 
 #include <chrono>
-#include <condition_variable>
-#include <cstddef>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <iostream>
 #include <limits>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -27,15 +25,15 @@
 namespace {
 
 using qwen_tts_bridge::AudioFormat;
-using qwen_tts_bridge::PcmChunk;
 using qwen_tts_bridge::QwenTtsClient;
 using qwen_tts_bridge::QwenTtsClientOptions;
 using qwen_tts_bridge::RequestId;
 using qwen_tts_bridge::StdIoTransportOptions;
-using qwen_tts_bridge::TtsCallbacks;
-using qwen_tts_bridge::TtsError;
 using qwen_tts_bridge::TtsRequest;
+using qwen_tts_bridge::examples::SaveWavState;
 using qwen_tts_bridge::examples::WavWriter;
+using qwen_tts_bridge::examples::make_save_wav_callbacks;
+using qwen_tts_bridge::examples::wait_for_save_wav_terminal;
 
 struct ProgramOptions {
     bool help = false;
@@ -55,16 +53,6 @@ struct ProgramOptions {
     double mock_chunk_delay = 0.0;
     std::chrono::milliseconds startup_timeout{30000};
     std::chrono::milliseconds request_timeout{60000};
-};
-
-struct SynthesisState {
-    std::mutex mutex;
-    std::condition_variable condition;
-    bool terminal = false;
-    bool success = false;
-    std::string message;
-    std::size_t audio_chunks = 0;
-    std::uint64_t audio_bytes = 0;
 };
 
 void print_usage(std::ostream& out, const char* executable_name) {
@@ -131,7 +119,7 @@ int parse_int(const std::string& value, const std::string& option) {
 double parse_double(const std::string& value, const std::string& option) {
     std::size_t parsed = 0;
     const double result = std::stod(value, &parsed);
-    if (parsed != value.size()) {
+    if (parsed != value.size() || !std::isfinite(result)) {
         throw std::runtime_error("invalid number for " + option + ": " + value);
     }
     return result;
@@ -288,118 +276,6 @@ AudioFormat requested_audio_format(const ProgramOptions& options) {
     return format;
 }
 
-void mark_finished(
-    SynthesisState& state,
-    bool success,
-    std::string message) {
-    {
-        std::lock_guard<std::mutex> lock(state.mutex);
-        if (state.terminal) {
-            return;
-        }
-        state.terminal = true;
-        state.success = success;
-        state.message = std::move(message);
-    }
-    state.condition.notify_all();
-}
-
-bool matches_format(const PcmChunk& chunk, const AudioFormat& expected) {
-    return chunk.format.sample_format == expected.sample_format &&
-           chunk.format.sample_rate == expected.sample_rate &&
-           chunk.format.channels == expected.channels;
-}
-
-TtsCallbacks make_callbacks(
-    SynthesisState& state,
-    WavWriter& writer,
-    const AudioFormat& expected_format) {
-    TtsCallbacks callbacks;
-
-    callbacks.on_audio = [&state, &writer, expected_format](const PcmChunk& chunk) {
-        try {
-            std::lock_guard<std::mutex> lock(state.mutex);
-            if (state.terminal) {
-                return;
-            }
-            if (!matches_format(chunk, expected_format)) {
-                throw std::runtime_error("worker produced an unexpected PCM format");
-            }
-
-            writer.write_pcm(chunk.bytes.data(), chunk.bytes.size());
-            ++state.audio_chunks;
-            state.audio_bytes += chunk.bytes.size();
-        }
-        catch (const std::exception& exc) {
-            mark_finished(state, false, exc.what());
-        }
-        catch (...) {
-            mark_finished(state, false, "unknown audio callback failure");
-        }
-    };
-
-    callbacks.on_completed = [&state, &writer]() {
-        try {
-            {
-                std::lock_guard<std::mutex> lock(state.mutex);
-                if (state.terminal) {
-                    return;
-                }
-                writer.close();
-                state.terminal = true;
-                state.success = true;
-                state.message = "completed";
-            }
-            state.condition.notify_all();
-        }
-        catch (const std::exception& exc) {
-            mark_finished(state, false, exc.what());
-        }
-        catch (...) {
-            mark_finished(state, false, "unknown completion callback failure");
-        }
-    };
-
-    callbacks.on_cancelled = [&state, &writer]() {
-        try {
-            writer.close();
-        }
-        catch (...) {
-        }
-        mark_finished(state, false, "request was cancelled");
-    };
-
-    callbacks.on_error = [&state, &writer](const TtsError& error) {
-        try {
-            writer.close();
-        }
-        catch (...) {
-        }
-        mark_finished(
-            state,
-            false,
-            error.category + "/" + error.code + ": " + error.message);
-    };
-
-    return callbacks;
-}
-
-bool wait_for_terminal(
-    SynthesisState& state,
-    std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lock(state.mutex);
-    if (timeout.count() == 0) {
-        state.condition.wait(lock, [&state]() {
-            return state.terminal;
-        });
-        return true;
-    }
-
-    return state.condition.wait_for(lock, timeout, [&state]() {
-        return state.terminal;
-    });
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -427,7 +303,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error("failed to start Qwen TTS worker");
         }
 
-        SynthesisState state;
+        SaveWavState state;
         TtsRequest request;
         request.text = options.text;
         request.language = options.language;
@@ -437,13 +313,13 @@ int main(int argc, char** argv) {
 
         const RequestId request_id = client.synthesize_async(
             std::move(request),
-            make_callbacks(state, writer, audio_format));
+            make_save_wav_callbacks(state, writer, audio_format));
         if (request_id == 0) {
             client.stop();
             throw std::runtime_error("failed to enqueue synthesis request");
         }
 
-        if (!wait_for_terminal(state, options.request_timeout)) {
+        if (!wait_for_save_wav_terminal(state, options.request_timeout)) {
             client.cancel(request_id);
             client.stop();
             throw std::runtime_error("synthesis request timed out");
