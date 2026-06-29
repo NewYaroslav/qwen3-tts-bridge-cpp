@@ -74,6 +74,7 @@ public:
 
     void on_error(std::string message) {
         std::lock_guard<std::mutex> lock(mutex_);
+        event_order_.push_back('!');
         errors_.push_back(std::move(message));
         condition_.notify_all();
     }
@@ -104,6 +105,19 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         const bool ready = condition_.wait_for(lock, std::chrono::seconds(5), [&]() {
             return stderr_.find(expected_text) != std::string::npos;
+        });
+        CHECK(ready);
+    }
+
+    void wait_for_error(const std::string& expected_text) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const bool ready = condition_.wait_for(lock, std::chrono::seconds(5), [&]() {
+            for (const auto& error : errors_) {
+                if (error.find(expected_text) != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
         });
         CHECK(ready);
     }
@@ -144,6 +158,40 @@ public:
             }
         }
         return false;
+    }
+
+    std::size_t error_count(const std::string& expected_text) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::size_t count = 0;
+        for (const auto& error : errors_) {
+            if (error.find(expected_text) != std::string::npos) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    bool has_error_before_exit(const std::string& expected_text) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::size_t error_index = event_order_.size();
+        std::size_t exit_index = event_order_.size();
+
+        std::size_t seen_errors = 0;
+        for (std::size_t index = 0; index < event_order_.size(); ++index) {
+            if (event_order_[index] == '!') {
+                const auto& error = errors_.at(seen_errors);
+                if (error.find(expected_text) != std::string::npos) {
+                    error_index = index;
+                }
+                ++seen_errors;
+            }
+            else if (event_order_[index] == 'E') {
+                exit_index = index;
+                break;
+            }
+        }
+
+        return error_index < exit_index;
     }
 
 private:
@@ -564,6 +612,59 @@ void test_stdout_is_delivered_before_exit_callback() {
     CHECK(!collector.has_errors());
 }
 
+void test_invalid_callback_queue_limits_reject_start() {
+    StdIoTransportOptions options = make_python_options("import time; time.sleep(60)");
+    options.max_callback_queue_events = 0;
+
+    RawCollector collector;
+    StdIoTransport transport(options);
+
+    CHECK(!transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+    CHECK(!transport.is_running());
+}
+
+void test_callback_queue_overflow_reports_error_and_stops_worker() {
+    RawCollector collector;
+    StdIoTransportOptions options = make_python_options(
+        "import sys, time\n"
+        "sys.stdout.buffer.write(b'x' * 262144)\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(10)\n",
+        std::chrono::milliseconds(500));
+    options.read_buffer_size = 16;
+    options.max_callback_queue_events = 4;
+    options.max_callback_queue_bytes = 128;
+
+    StdIoTransport transport(options);
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    collector.wait_for_error("callback queue overflow");
+    collector.wait_for_exit();
+    transport.stop();
+    CHECK(!transport.is_running());
+    CHECK(collector.error_count("callback queue overflow") == 1);
+    CHECK(collector.has_error_before_exit("callback queue overflow"));
+}
+
 void test_unicode_working_directory_and_argument() {
 #if defined(_WIN32)
     namespace fs = std::filesystem;
@@ -615,6 +716,8 @@ int main() {
     test_stop_from_receive_callback();
     test_stop_can_kill_worker_while_send_is_blocked();
     test_stdout_is_delivered_before_exit_callback();
+    test_invalid_callback_queue_limits_reject_start();
+    test_callback_queue_overflow_reports_error_and_stops_worker();
     test_unicode_working_directory_and_argument();
     return 0;
 }
