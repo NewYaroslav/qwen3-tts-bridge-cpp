@@ -296,7 +296,8 @@ void send_control(
         request_id,
         bytes_from_string(payload));
     CHECK(encoded);
-    CHECK(transport.send(encoded.bytes.data(), encoded.bytes.size()));
+    CHECK(transport.send(encoded.bytes.data(), encoded.bytes.size()) ==
+          SendResult::Accepted);
 }
 
 void test_mock_worker_handshake_over_stdio_transport() {
@@ -355,8 +356,8 @@ void test_send_before_start_and_empty_send() {
     StdIoTransport transport(make_python_options("import time; time.sleep(60)"));
 
     std::byte byte{0x42};
-    CHECK(transport.send(nullptr, 0));
-    CHECK(!transport.send(&byte, 1));
+    CHECK(transport.send(nullptr, 0) == SendResult::Accepted);
+    CHECK(transport.send(&byte, 1) == SendResult::Closed);
     transport.stop();
 }
 

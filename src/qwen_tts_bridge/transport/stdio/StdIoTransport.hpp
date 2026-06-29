@@ -86,9 +86,9 @@ public:
         ExitHandler exit_handler) override;
 
     /// \brief Sends bytes to worker stdin.
-    /// \return True when the bytes were written; false when stopped, stopping,
-    /// or the pipe write fails.
-    bool send(const std::byte* data, std::size_t size) override;
+    /// \return Accepted when the bytes were written, Closed when stopped or
+    /// stopping, and Failed when the pipe write fails.
+    SendResult send(const std::byte* data, std::size_t size) override;
 
     /// \brief Returns true while the worker process is considered running.
     bool is_running() const override;

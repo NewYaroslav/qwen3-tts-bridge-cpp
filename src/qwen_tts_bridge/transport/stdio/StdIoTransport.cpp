@@ -238,14 +238,14 @@ public:
         }
     }
 
-    bool send(const std::byte* data, std::size_t size) {
+    SendResult send(const std::byte* data, std::size_t size) {
         if (data == nullptr && size != 0) {
             report_error("cannot send a non-zero byte count from a null pointer");
-            return false;
+            return SendResult::Failed;
         }
 
         if (size == 0) {
-            return true;
+            return SendResult::Accepted;
         }
 
         std::shared_ptr<TinyProcessLib::Process> process;
@@ -258,7 +258,7 @@ public:
 
         if (process == nullptr) {
             report_error("stdio transport is not running");
-            return false;
+            return SendResult::Closed;
         }
 
         bool ok = false;
@@ -271,7 +271,7 @@ public:
                 std::lock_guard<std::mutex> state_lock(state_mutex_);
                 if (state_ != ProcessState::Running || process_ != process || exited_) {
                     report_error("stdio transport is not running");
-                    return false;
+                    return SendResult::Closed;
                 }
             }
 
@@ -293,9 +293,10 @@ public:
                 ? std::string("failed to write bytes to worker stdin")
                 : write_error;
             report_error(message);
+            return SendResult::Failed;
         }
 
-        return ok;
+        return SendResult::Accepted;
     }
 
     bool is_running() const {
@@ -680,7 +681,7 @@ bool StdIoTransport::start(
         std::move(exit_handler));
 }
 
-bool StdIoTransport::send(const std::byte* data, std::size_t size) {
+SendResult StdIoTransport::send(const std::byte* data, std::size_t size) {
     return impl_->send(data, size);
 }
 

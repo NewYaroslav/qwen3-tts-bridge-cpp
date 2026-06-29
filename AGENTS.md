@@ -412,6 +412,13 @@ it byte-oriented and protocol-neutral.
 Suggested shape:
 
 ```cpp
+enum class SendResult {
+    Accepted,
+    WouldBlock,
+    Closed,
+    Failed
+};
+
 class ITransport {
 public:
     using Bytes = std::vector<std::byte>;
@@ -426,7 +433,7 @@ public:
         ErrorHandler error_handler,
         ExitHandler exit_handler) = 0;
 
-    virtual bool send(const std::byte* data, std::size_t size) = 0;
+    virtual SendResult send(const std::byte* data, std::size_t size) = 0;
     virtual bool is_running() const = 0;
     virtual void stop() = 0;
 };
@@ -437,6 +444,8 @@ properties:
 
 - transport receives and sends bytes only;
 - receive callbacks are internal callbacks, not user synthesis callbacks;
+- send results distinguish accepted bytes, temporary backpressure, closed
+  transports, and local send failures;
 - transport errors are reported separately from worker/model errors;
 - read boundaries are arbitrary and must not be treated as protocol frames;
 - `stop()` is deterministic and safe to call more than once;

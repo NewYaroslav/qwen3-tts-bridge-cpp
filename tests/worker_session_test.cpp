@@ -74,7 +74,7 @@ std::vector<std::byte> audio_frame_bytes(RequestId request_id) {
 class ScriptedTransport final : public ITransport {
 public:
     bool start_return = true;
-    std::vector<bool> send_results;
+    std::vector<SendResult> send_results;
     std::vector<Bytes> chunks_on_send;
     std::vector<std::string> errors_on_send;
     bool exit_on_send = false;
@@ -92,19 +92,19 @@ public:
         return start_return;
     }
 
-    bool send(const std::byte* data, std::size_t size) override {
+    SendResult send(const std::byte* data, std::size_t size) override {
         if (!running_ || (data == nullptr && size != 0)) {
-            return false;
+            return SendResult::Closed;
         }
 
         ++send_count;
-        bool send_result = true;
+        SendResult send_result = SendResult::Accepted;
         if (!send_results.empty()) {
             send_result = send_results.front();
             send_results.erase(send_results.begin());
         }
-        if (!send_result) {
-            return false;
+        if (send_result != SendResult::Accepted) {
+            return send_result;
         }
 
         for (const auto& error : errors_on_send) {
@@ -117,7 +117,7 @@ public:
             running_ = false;
             exit_handler_(exit_status);
         }
-        return true;
+        return SendResult::Accepted;
     }
 
     bool is_running() const override {
@@ -392,7 +392,7 @@ void test_start_fails_on_transport_error() {
 
 void test_start_fails_on_hello_send_failure() {
     auto transport = std::make_unique<ScriptedTransport>();
-    transport->send_results.push_back(false);
+    transport->send_results.push_back(SendResult::Failed);
     WorkerSession session = make_scripted_session(std::move(transport));
 
     const auto started = std::chrono::steady_clock::now();
@@ -401,15 +401,15 @@ void test_start_fails_on_hello_send_failure() {
     CHECK(elapsed < std::chrono::seconds(2));
 
     const auto event = wait_for_event(session, WorkerSessionEventType::TransportError);
-    CHECK(event.message.find("rejected outbound control") != std::string::npos);
+    CHECK(event.message.find("failed to send control") != std::string::npos);
     CHECK(!session.is_ready());
     CHECK(!session.is_running());
 }
 
 void test_send_control_failure_reports_transport_error() {
     auto transport = std::make_unique<ScriptedTransport>();
-    transport->send_results.push_back(true);
-    transport->send_results.push_back(false);
+    transport->send_results.push_back(SendResult::Accepted);
+    transport->send_results.push_back(SendResult::Failed);
     transport->chunks_on_send.push_back(ready_frame_bytes());
     WorkerSession session = make_scripted_session(std::move(transport));
 
@@ -420,7 +420,7 @@ void test_send_control_failure_reports_transport_error() {
     CHECK(!session.send_control(0, ControlMessage{ping}));
 
     const auto event = wait_for_event(session, WorkerSessionEventType::TransportError);
-    CHECK(event.message.find("rejected outbound control") != std::string::npos);
+    CHECK(event.message.find("failed to send control") != std::string::npos);
     CHECK(session.state() == WorkerSessionState::Failed);
 }
 

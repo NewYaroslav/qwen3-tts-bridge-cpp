@@ -50,6 +50,21 @@ bool is_request_level_worker_control(ControlMessageType message_type) {
         message_type == ControlMessageType::Cancelled;
 }
 
+std::string send_result_message(SendResult result) {
+    switch (result) {
+    case SendResult::WouldBlock:
+        return "transport would block while sending control frame";
+    case SendResult::Closed:
+        return "transport is closed while sending control frame";
+    case SendResult::Failed:
+        return "transport failed to send control frame";
+    case SendResult::Accepted:
+        break;
+    }
+
+    return "transport rejected outbound control frame";
+}
+
 } // namespace
 
 WorkerSession::WorkerSession(
@@ -283,7 +298,10 @@ bool WorkerSession::send_control_frame(
         mark_outbound_control_locked(request_id, control_message_type(message));
     }
 
-    if (transport_->send(encoded.bytes.data(), encoded.bytes.size())) {
+    const SendResult send_result = transport_->send(
+        encoded.bytes.data(),
+        encoded.bytes.size());
+    if (send_result == SendResult::Accepted) {
         return true;
     }
 
@@ -291,12 +309,12 @@ bool WorkerSession::send_control_frame(
     if (state_ == WorkerSessionState::Starting ||
         state_ == WorkerSessionState::Ready) {
         fail_with_event_locked(
-            make_transport_error("transport rejected outbound control frame"),
+            make_transport_error(send_result_message(send_result)),
             true);
     }
     else {
         enqueue_event_locked(
-            make_transport_error("transport rejected outbound control frame"),
+            make_transport_error(send_result_message(send_result)),
             true);
     }
     notify_state_locked();
