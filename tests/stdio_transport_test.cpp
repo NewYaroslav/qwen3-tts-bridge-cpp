@@ -108,6 +108,19 @@ public:
         CHECK(ready);
     }
 
+    void wait_for_error(const std::string& expected_text) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const bool ready = condition_.wait_for(lock, std::chrono::seconds(5), [&]() {
+            for (const auto& error : errors_) {
+                if (error.find(expected_text) != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        CHECK(ready);
+    }
+
     int wait_for_exit() {
         std::unique_lock<std::mutex> lock(mutex_);
         const bool ready = condition_.wait_for(lock, std::chrono::seconds(5), [&]() {
@@ -564,6 +577,57 @@ void test_stdout_is_delivered_before_exit_callback() {
     CHECK(!collector.has_errors());
 }
 
+void test_invalid_callback_queue_limits_reject_start() {
+    StdIoTransportOptions options = make_python_options("import time; time.sleep(60)");
+    options.max_callback_queue_events = 0;
+
+    RawCollector collector;
+    StdIoTransport transport(options);
+
+    CHECK(!transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+    CHECK(!transport.is_running());
+}
+
+void test_callback_queue_overflow_reports_error_and_stops_worker() {
+    RawCollector collector;
+    StdIoTransportOptions options = make_python_options(
+        "import sys, time\n"
+        "sys.stdout.buffer.write(b'x' * 262144)\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(10)\n",
+        std::chrono::milliseconds(500));
+    options.read_buffer_size = 16;
+    options.max_callback_queue_events = 4;
+    options.max_callback_queue_bytes = 128;
+
+    StdIoTransport transport(options);
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    collector.wait_for_error("callback queue overflow");
+    collector.wait_for_exit();
+    transport.stop();
+    CHECK(!transport.is_running());
+}
+
 void test_unicode_working_directory_and_argument() {
 #if defined(_WIN32)
     namespace fs = std::filesystem;
@@ -615,6 +679,8 @@ int main() {
     test_stop_from_receive_callback();
     test_stop_can_kill_worker_while_send_is_blocked();
     test_stdout_is_delivered_before_exit_callback();
+    test_invalid_callback_queue_limits_reject_start();
+    test_callback_queue_overflow_reports_error_and_stops_worker();
     test_unicode_working_directory_and_argument();
     return 0;
 }

@@ -43,6 +43,10 @@ struct CallbackEvent {
     int exit_status = -1;
 };
 
+std::size_t callback_event_payload_size(const CallbackEvent& event) {
+    return event.bytes.size() + event.message.size();
+}
+
 TinyProcessLib::Process::string_type to_process_string(const std::string& value) {
 #if defined(_WIN32) && defined(UNICODE)
     if (value.empty()) {
@@ -133,6 +137,11 @@ public:
 
         if (options_.arguments.empty()) {
             call_error(error_handler, "stdio transport requires at least one process argument");
+            return false;
+        }
+
+        if (options_.max_callback_queue_events == 0 || options_.max_callback_queue_bytes == 0) {
+            call_error(error_handler, "stdio transport callback queue limits must be greater than zero");
             return false;
         }
 
@@ -416,6 +425,8 @@ private:
         {
             std::lock_guard<std::mutex> lock(callback_mutex_);
             callback_events_.clear();
+            callback_queued_bytes_ = 0;
+            callback_queue_overflowed_ = false;
             callback_stop_requested_ = false;
             callback_accepting_events_ = true;
         }
@@ -441,6 +452,7 @@ private:
 
                 event = std::move(callback_events_.front());
                 callback_events_.pop_front();
+                callback_queued_bytes_ -= callback_event_payload_size(event);
             }
 
             dispatch_event(std::move(event));
@@ -488,14 +500,67 @@ private:
     }
 
     void enqueue_event(CallbackEvent event) {
+        bool should_stop = false;
         {
             std::lock_guard<std::mutex> lock(callback_mutex_);
             if (!callback_accepting_events_) {
                 return;
             }
-            callback_events_.push_back(std::move(event));
+
+            if (callback_queue_overflowed_ && event.type != CallbackEventType::Exit) {
+                return;
+            }
+
+            if (event.type != CallbackEventType::Exit && would_overflow_callback_queue(event)) {
+                if (!callback_queue_overflowed_) {
+                    callback_queue_overflowed_ = true;
+                    enqueue_callback_event_locked(make_callback_queue_overflow_error());
+                    should_stop = true;
+                }
+            }
+            else {
+                enqueue_callback_event_locked(std::move(event));
+            }
         }
         callback_condition_.notify_one();
+
+        if (should_stop) {
+            stop_after_callback_queue_overflow();
+        }
+    }
+
+    bool would_overflow_callback_queue(const CallbackEvent& event) const {
+        const auto event_size = callback_event_payload_size(event);
+        return callback_events_.size() >= options_.max_callback_queue_events
+            || event_size > options_.max_callback_queue_bytes
+            || callback_queued_bytes_ > options_.max_callback_queue_bytes - event_size;
+    }
+
+    CallbackEvent make_callback_queue_overflow_error() const {
+        CallbackEvent event;
+        event.type = CallbackEventType::Error;
+        event.message = "stdio transport callback queue overflow";
+        return event;
+    }
+
+    void enqueue_callback_event_locked(CallbackEvent event) {
+        callback_queued_bytes_ += callback_event_payload_size(event);
+        callback_events_.push_back(std::move(event));
+    }
+
+    void stop_after_callback_queue_overflow() {
+        std::shared_ptr<TinyProcessLib::Process> process;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            process = process_;
+            if (state_ == ProcessState::Running || state_ == ProcessState::Starting) {
+                state_ = ProcessState::Stopping;
+            }
+        }
+
+        if (process != nullptr) {
+            process->kill(true);
+        }
     }
 
     void request_callback_thread_stop() {
@@ -585,8 +650,10 @@ private:
     std::mutex callback_mutex_;
     std::condition_variable callback_condition_;
     std::deque<CallbackEvent> callback_events_;
+    std::size_t callback_queued_bytes_ = 0;
     bool callback_stop_requested_ = false;
     bool callback_accepting_events_ = false;
+    bool callback_queue_overflowed_ = false;
 
     ReceiveHandler receive_handler_;
     ErrorHandler error_handler_;

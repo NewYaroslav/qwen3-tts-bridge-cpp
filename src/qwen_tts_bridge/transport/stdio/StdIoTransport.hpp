@@ -35,6 +35,18 @@ struct StdIoTransportOptions {
     /// \brief Tiny-process stdout/stderr read buffer size.
     std::size_t read_buffer_size = 64u * 1024u;
 
+    /// \brief Maximum events waiting for transport callback dispatch.
+    ///
+    /// This is a defensive memory bound. If the queue overflows, the transport
+    /// reports a local resource error and stops the worker process.
+    std::size_t max_callback_queue_events = 4096u;
+
+    /// \brief Maximum payload bytes waiting for transport callback dispatch.
+    ///
+    /// This counts stdout bytes, stderr bytes, and queued error text. It is a
+    /// transport-level safety limit, not the main PCM backpressure mechanism.
+    std::size_t max_callback_queue_bytes = 16u * 1024u * 1024u;
+
     /// \brief Optional diagnostic handler for worker stderr bytes.
     std::function<void(std::string)> stderr_handler;
 };
