@@ -57,6 +57,17 @@ enum class WorkerSessionEventType {
     Exited          ///< Worker process or transport peer exited.
 };
 
+/// \enum WorkerSessionState
+/// \brief Coarse worker session lifecycle state.
+enum class WorkerSessionState {
+    Stopped,  ///< Session has not been started yet.
+    Starting, ///< Transport started and ready handshake is pending.
+    Ready,    ///< Worker completed the ready handshake.
+    Stopping, ///< Stop has been requested.
+    Failed,   ///< Local, transport, or protocol failure occurred.
+    Exited    ///< Worker process or transport peer exited.
+};
+
 /// \struct WorkerSessionEvent
 /// \brief Event emitted by WorkerSession after transport and protocol parsing.
 struct WorkerSessionEvent {
@@ -121,6 +132,9 @@ public:
     /// \brief Returns whether the worker has completed the ready handshake.
     bool is_ready() const;
 
+    /// \brief Returns the current coarse session lifecycle state.
+    WorkerSessionState state() const;
+
     /// \brief Returns whether the underlying transport is running.
     bool is_running() const;
 
@@ -136,8 +150,18 @@ private:
     void handle_exit(int exit_status);
 
     bool handle_frame_locked(Frame frame);
+    bool handle_control_frame_locked(Frame frame);
+    bool handle_audio_frame_locked(Frame frame);
+    bool handle_error_frame_locked(Frame frame);
     bool enqueue_event_locked(WorkerSessionEvent event, bool exempt_from_limits = false);
     std::size_t event_payload_size(const WorkerSessionEvent& event) const;
+    std::size_t control_payload_size(const ControlMessage& message) const;
+    bool fail_with_event_locked(WorkerSessionEvent event, bool exempt_from_limits = true);
+    void mark_outbound_control_locked(RequestId request_id, ControlMessageType message_type);
+    bool is_ready_message_allowed_locked(RequestId request_id) const;
+    bool is_control_message_allowed_locked(
+        RequestId request_id,
+        ControlMessageType message_type) const;
     void notify_state_locked();
 
     mutable std::mutex mutex_;
@@ -147,12 +171,11 @@ private:
     FrameParser parser_;
     std::deque<WorkerSessionEvent> events_;
     std::size_t queued_event_bytes_ = 0;
+    WorkerSessionState state_ = WorkerSessionState::Stopped;
     bool event_queue_overflowed_ = false;
-    bool started_ = false;
-    bool stopping_ = false;
-    bool ready_ = false;
+    bool start_attempted_ = false;
+    bool shutdown_requested_ = false;
     ReadyMessage ready_message_;
-    bool exited_ = false;
 };
 
 } // namespace qwen_tts_bridge

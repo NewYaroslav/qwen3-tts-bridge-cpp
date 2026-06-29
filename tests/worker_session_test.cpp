@@ -1,4 +1,5 @@
 #include <qwen_tts_bridge/session.hpp>
+#include <qwen_tts_bridge/protocol/framing.hpp>
 #include <qwen_tts_bridge/transport/stdio/StdIoTransport.hpp>
 
 #include <chrono>
@@ -9,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #define CHECK(expr)                                                            \
     do {                                                                       \
@@ -22,6 +24,110 @@
 namespace {
 
 using namespace qwen_tts_bridge;
+
+std::vector<std::byte> bytes_from_string(const std::string& value) {
+    std::vector<std::byte> bytes;
+    bytes.reserve(value.size());
+    for (const char ch : value) {
+        bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(ch)));
+    }
+    return bytes;
+}
+
+std::vector<std::byte> frame_bytes(
+    FrameType frame_type,
+    RequestId request_id,
+    const std::vector<std::byte>& payload) {
+    const EncodeResult encoded = encode_frame(frame_type, request_id, payload);
+    CHECK(encoded);
+    return encoded.bytes;
+}
+
+std::vector<std::byte> control_frame_bytes(
+    RequestId request_id,
+    const std::string& json) {
+    return frame_bytes(FrameType::ControlJson, request_id, bytes_from_string(json));
+}
+
+std::vector<std::byte> ready_frame_bytes(RequestId request_id = 0) {
+    return control_frame_bytes(
+        request_id,
+        "{\"message_type\":\"ready\","
+        "\"worker_version\":\"0.2.0\","
+        "\"session_id\":\"scripted\","
+        "\"warmed_up\":true,"
+        "\"capabilities\":{"
+        "\"streaming\":true,"
+        "\"cancellation\":true,"
+        "\"instructions\":true,"
+        "\"voice_clone\":false"
+        "}}");
+}
+
+std::vector<std::byte> audio_frame_bytes(RequestId request_id) {
+    return frame_bytes(
+        FrameType::AudioPcm,
+        request_id,
+        std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
+}
+
+class ScriptedTransport final : public ITransport {
+public:
+    bool start_return = true;
+    std::vector<Bytes> chunks_on_send;
+    std::vector<std::string> errors_on_send;
+    bool exit_on_send = false;
+    int exit_status = 0;
+    int send_count = 0;
+
+    bool start(
+        ReceiveHandler receive_handler,
+        ErrorHandler error_handler,
+        ExitHandler exit_handler) override {
+        receive_handler_ = std::move(receive_handler);
+        error_handler_ = std::move(error_handler);
+        exit_handler_ = std::move(exit_handler);
+        running_ = start_return;
+        return start_return;
+    }
+
+    bool send(const std::byte* data, std::size_t size) override {
+        if (!running_ || (data == nullptr && size != 0)) {
+            return false;
+        }
+
+        ++send_count;
+        for (const auto& error : errors_on_send) {
+            error_handler_(error);
+        }
+        for (auto chunk : chunks_on_send) {
+            receive_handler_(std::move(chunk));
+        }
+        if (exit_on_send) {
+            running_ = false;
+            exit_handler_(exit_status);
+        }
+        return true;
+    }
+
+    bool is_running() const override {
+        return running_;
+    }
+
+    void stop() override {
+        running_ = false;
+    }
+
+    void emit(Bytes bytes) {
+        receive_handler_(std::move(bytes));
+    }
+
+private:
+    ReceiveHandler receive_handler_;
+    ErrorHandler error_handler_;
+    ExitHandler exit_handler_;
+    bool running_ = false;
+};
 
 StdIoTransportOptions make_worker_options(int mock_chunks) {
     StdIoTransportOptions options;
@@ -48,6 +154,17 @@ WorkerSession make_session(int mock_chunks) {
     options.client_version = "0.2.0";
     options.startup_timeout = std::chrono::seconds(5);
     return WorkerSession(make_transport(mock_chunks), options);
+}
+
+WorkerSession make_scripted_session(
+    std::unique_ptr<ScriptedTransport> transport,
+    WorkerSessionOptions options = {}) {
+    options.client_name = "worker-session-test";
+    options.client_version = "0.2.0";
+    if (options.startup_timeout == std::chrono::milliseconds{0}) {
+        options.startup_timeout = std::chrono::seconds(5);
+    }
+    return WorkerSession(std::move(transport), options);
 }
 
 WorkerSessionEvent wait_for_event(
@@ -177,10 +294,138 @@ void test_synthesize_routes_control_audio_and_completed() {
     session.stop();
 }
 
+void test_start_fails_fast_on_malformed_ready() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->chunks_on_send.push_back(control_frame_bytes(
+        0,
+        "{\"message_type\":\"ready\"}"));
+
+    WorkerSessionOptions options;
+    options.startup_timeout = std::chrono::seconds(5);
+    WorkerSession session = make_scripted_session(std::move(transport), options);
+
+    const auto started = std::chrono::steady_clock::now();
+    CHECK(!session.start());
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    CHECK(elapsed < std::chrono::seconds(2));
+
+    const auto event = wait_for_event(session, WorkerSessionEventType::ProtocolError);
+    CHECK(!event.message.empty());
+}
+
+void test_start_rejects_ready_with_request_id() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->chunks_on_send.push_back(ready_frame_bytes(123));
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(!session.start());
+    wait_for_event(session, WorkerSessionEventType::ProtocolError);
+}
+
+void test_duplicate_ready_fails_session() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    auto* raw_transport = transport.get();
+    transport->chunks_on_send.push_back(ready_frame_bytes());
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(session.start());
+    wait_for_control(session, ControlMessageType::Ready, 0);
+
+    raw_transport->emit(ready_frame_bytes());
+    wait_for_event(session, WorkerSessionEventType::ProtocolError);
+    CHECK(session.state() == WorkerSessionState::Failed);
+}
+
+void test_unexpected_shutdown_ack_fails_session() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    auto* raw_transport = transport.get();
+    transport->chunks_on_send.push_back(ready_frame_bytes());
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(session.start());
+    wait_for_control(session, ControlMessageType::Ready, 0);
+
+    raw_transport->emit(control_frame_bytes(0, "{\"message_type\":\"shutdown_ack\"}"));
+    wait_for_event(session, WorkerSessionEventType::ProtocolError);
+    CHECK(session.state() == WorkerSessionState::Failed);
+}
+
+void test_start_rejects_audio_before_ready() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->chunks_on_send.push_back(audio_frame_bytes(1));
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(!session.start());
+    wait_for_event(session, WorkerSessionEventType::ProtocolError);
+}
+
+void test_start_fails_on_exit_before_ready() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->exit_on_send = true;
+    transport->exit_status = 7;
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(!session.start());
+    const auto event = wait_for_event(session, WorkerSessionEventType::Exited);
+    CHECK(event.exit_status == 7);
+}
+
+void test_start_fails_on_transport_error() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->errors_on_send.push_back("scripted transport error");
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(!session.start());
+    const auto event = wait_for_event(session, WorkerSessionEventType::TransportError);
+    CHECK(event.message.find("scripted") != std::string::npos);
+}
+
+void test_queue_overflow_prevents_startup_success() {
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->chunks_on_send.push_back(ready_frame_bytes());
+
+    WorkerSessionOptions options;
+    options.startup_timeout = std::chrono::seconds(5);
+    options.max_event_queue_bytes = 1;
+    WorkerSession session = make_scripted_session(std::move(transport), options);
+
+    CHECK(!session.start());
+    const auto event = wait_for_event(session, WorkerSessionEventType::SessionError);
+    CHECK(event.message.find("overflow") != std::string::npos);
+}
+
+void test_invalid_options_and_repeated_start_are_rejected() {
+    {
+        auto transport = std::make_unique<ScriptedTransport>();
+        WorkerSessionOptions options;
+        options.max_event_queue_bytes = 0;
+        WorkerSession session = make_scripted_session(std::move(transport), options);
+        CHECK(!session.start());
+    }
+
+    auto transport = std::make_unique<ScriptedTransport>();
+    transport->chunks_on_send.push_back(ready_frame_bytes());
+    WorkerSession session = make_scripted_session(std::move(transport));
+
+    CHECK(session.start());
+    wait_for_control(session, ControlMessageType::Ready, 0);
+    session.stop();
+    CHECK(!session.start());
+}
+
 } // namespace
 
 int main() {
     test_handshake_ping_shutdown();
     test_synthesize_routes_control_audio_and_completed();
+    test_start_fails_fast_on_malformed_ready();
+    test_start_rejects_ready_with_request_id();
+    test_duplicate_ready_fails_session();
+    test_unexpected_shutdown_ack_fails_session();
+    test_start_rejects_audio_before_ready();
+    test_start_fails_on_exit_before_ready();
+    test_start_fails_on_transport_error();
+    test_queue_overflow_prevents_startup_success();
+    test_invalid_options_and_repeated_start_are_rejected();
     return 0;
 }
