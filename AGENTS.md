@@ -454,8 +454,8 @@ main.py
 stdio_server.py
     stdin/stdout IPC server, request queue, and request lifecycle
 
-protocol.py
-    frame serialization, parsing, and validation
+protocol/
+    byte-level protocol package
 
 engine.py
     TtsEngine interface and engine errors
@@ -472,6 +472,22 @@ config.py
 logging_setup.py
     stderr/file logging setup
 ```
+
+Keep the Python worker source split by subdomain, the same way as the C++ side.
+Do not grow a monolithic `protocol.py`.
+
+Preferred protocol package layout:
+
+```text
+worker/qwen_tts_bridge_worker/protocol/
+    __init__.py          umbrella import surface only
+    data/                enums, constants, DTOs, and parse results
+    framing/             QTB binary frame codec and incremental parser
+    control/             future JSON control-message validation/mapping
+```
+
+The package-level `protocol/__init__.py` may re-export stable names used by the
+server, but implementation logic belongs in the nearest subdomain module.
 
 The IPC server must not import internal Qwen model classes directly. Keep Qwen
 behind a narrow engine interface:
