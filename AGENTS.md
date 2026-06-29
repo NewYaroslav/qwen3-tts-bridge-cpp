@@ -100,6 +100,11 @@ test(protocol): cover fragmented frame parsing
 chore(submodule): add tiny-process-library
 ```
 
+When committing, keep logical layers separate where practical: code changes,
+agent/project rules, dependency updates, and generated documentation should be
+separate commits unless they are inseparable. Run the relevant local tests or
+state clearly why they were not run before committing.
+
 ## Repository Layout
 
 Target layout:
@@ -119,6 +124,64 @@ dist/                   generated release packages, not committed
 
 C++ `.hpp` and `.cpp` files live together in `src/` unless the project later
 gets a deliberate public `include/` layout.
+
+## C++ Source Organization
+
+All project C++ headers and sources should live under:
+
+```text
+src/qwen_tts_bridge/
+```
+
+Prefer includes that name the library domain explicitly:
+
+```cpp
+#include <qwen_tts_bridge/protocol/framing.hpp>
+```
+
+Do not add new root-level headers such as `src/Protocol.hpp` or
+`src/Client.hpp`. Keep names meaningful for downstream users and keep the
+source tree shaped like the namespace.
+
+Split C++ code by subdomain instead of growing catch-all files:
+
+```text
+data/                 shared enums, DTOs, and lightweight value types
+protocol/framing/     QTB binary frame codec and incremental parser
+protocol/control/     future JSON control-message validation/mapping
+transport/            byte transports such as stdio and future websocket
+client/               public facade and user-facing request API
+session/              worker lifetime, queues, dispatch, request registry
+```
+
+Use umbrella headers sparingly but consistently at subdomain boundaries:
+
+```text
+qwen_tts_bridge/data.hpp
+qwen_tts_bridge/protocol/framing.hpp
+```
+
+Concrete implementations should be named after their responsibility, for
+example `FrameParser`, `FrameCodec`, `StdIoTransport`, or `RequestRegistry`.
+Avoid naming a file or class `Protocol` unless it truly owns the whole protocol
+surface.
+
+Keep enum classes and basic DTOs in `data/` or in the nearest subdomain
+`data/` file. If several files need the same DTO group, expose them through an
+umbrella header instead of including many leaf headers everywhere.
+
+Use Doxygen comments for stable public or cross-subdomain C++ APIs. Internal
+helpers may stay undocumented when the code is self-explanatory, but exported
+classes, structs, enums, and non-trivial functions should have concise
+`\brief`, `\param`, and `\return` comments where useful.
+
+Use `detail` only for genuinely private implementation helpers. Do not use
+`utils`, `helpers`, or `details` as dumping grounds for domain logic that should
+belong to `protocol`, `transport`, `client`, or `session`.
+
+Tests should mirror the subdomain they cover. For example, binary frame tests
+belong in protocol-focused test files, while worker lifecycle tests should stay
+separate from codec tests.
 
 ## Dependency Policy
 
