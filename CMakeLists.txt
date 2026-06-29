@@ -33,6 +33,11 @@ endif()
 add_library(qwen_tts_bridge
     src/qwen_tts_bridge/client/QwenTtsClient.cpp
     src/qwen_tts_bridge/protocol/control/ControlCodec.cpp
+    src/qwen_tts_bridge/protocol/control/ControlDecode.cpp
+    src/qwen_tts_bridge/protocol/control/ControlEncode.cpp
+    src/qwen_tts_bridge/protocol/control/ControlJson.cpp
+    src/qwen_tts_bridge/protocol/control/ControlValidation.cpp
+    src/qwen_tts_bridge/protocol/control/ErrorCodec.cpp
     src/qwen_tts_bridge/protocol/framing/FrameCodec.cpp
     src/qwen_tts_bridge/protocol/framing/FrameParser.cpp
     src/qwen_tts_bridge/session/WorkerSession.cpp
