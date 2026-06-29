@@ -26,7 +26,7 @@ std::uint32_t max_payload_size(FrameType frame_type);
 /// \param request_id Session or request identifier.
 /// \param payload Payload bytes.
 /// \return Encode result with binary frame bytes when successful.
-EncodeResult encode_frame(
+[[nodiscard]] EncodeResult encode_frame(
     FrameType frame_type,
     RequestId request_id,
     const std::vector<std::byte>& payload);
@@ -40,7 +40,7 @@ EncodeResult encode_frame(
 /// \param header Header values to encode.
 /// \param payload Payload bytes.
 /// \return Encode result with binary frame bytes when successful.
-EncodeResult encode_frame(
+[[nodiscard]] EncodeResult encode_frame(
     const FrameHeader& header,
     const std::vector<std::byte>& payload);
 

@@ -56,7 +56,7 @@ struct ParseResult {
 
 /// \struct EncodeResult
 /// \brief Result returned by protocol frame encoders.
-struct EncodeResult {
+struct [[nodiscard]] EncodeResult {
     std::vector<std::byte> bytes;              ///< Encoded frame when encoding succeeds.
     EncodeError error = EncodeError::None;    ///< Encode error, if any.
     std::string message;                      ///< Human-readable diagnostic text.

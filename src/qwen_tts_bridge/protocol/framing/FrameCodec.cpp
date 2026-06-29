@@ -54,7 +54,7 @@ std::uint32_t max_payload_size(FrameType frame_type) {
     return 0;
 }
 
-EncodeResult encode_frame(
+[[nodiscard]] EncodeResult encode_frame(
     FrameType frame_type,
     RequestId request_id,
     const std::vector<std::byte>& payload) {
@@ -65,7 +65,7 @@ EncodeResult encode_frame(
     return encode_frame(header, payload);
 }
 
-EncodeResult encode_frame(
+[[nodiscard]] EncodeResult encode_frame(
     const FrameHeader& header,
     const std::vector<std::byte>& payload) {
     if (header.protocol_version != ProtocolLimits::protocol_version) {
