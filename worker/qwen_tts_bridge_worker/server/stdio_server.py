@@ -1,4 +1,4 @@
-"""Stdio worker server for the local mock engine."""
+"""Stdio worker server for a local TTS engine."""
 
 from __future__ import annotations
 
@@ -210,13 +210,8 @@ class StdioWorkerServer:
                     "message_type": "ready",
                     "worker_version": self._worker_version,
                     "session_id": self._session_id,
-                    "warmed_up": bool(getattr(self._engine, "warmed_up", True)),
-                    "capabilities": {
-                        "streaming": True,
-                        "cancellation": True,
-                        "instructions": True,
-                        "voice_clone": False,
-                    },
+                    "warmed_up": self._engine.warmed_up,
+                    "capabilities": self._engine.capabilities.to_payload(),
                 },
             )
         )
@@ -351,16 +346,7 @@ class StdioWorkerServer:
             )
             return None
 
-        if output != AudioFormat.default():
-            self._send_error(
-                request_id,
-                "request_error",
-                "unsupported_audio_format",
-                "mock worker supports only s16le 24000 Hz mono",
-            )
-            return None
-
-        return SynthesisRequest(
+        request = SynthesisRequest(
             request_id=request_id,
             text=text,
             language=language,
@@ -368,6 +354,17 @@ class StdioWorkerServer:
             instruction=instruction,
             output=output,
         )
+        validation_error = self._engine.validate_request(request)
+        if validation_error is not None:
+            self._send_error(
+                request_id,
+                validation_error.category,
+                validation_error.code,
+                validation_error.message,
+            )
+            return None
+
+        return request
 
     def _handle_cancel(self, request_id: int) -> None:
         if request_id == 0:
@@ -522,7 +519,7 @@ class StdioWorkerServer:
                 request_id,
                 "model_error",
                 "synthesis_failed",
-                str(exc) or "mock synthesis failed",
+                str(exc) or "synthesis failed",
             )
             return
 

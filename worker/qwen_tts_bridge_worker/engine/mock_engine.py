@@ -6,9 +6,14 @@ import math
 import struct
 import threading
 import time
-from typing import Iterable
+from typing import Iterable, Optional
 
-from qwen_tts_bridge_worker.engine.types import AudioFormat, SynthesisRequest
+from qwen_tts_bridge_worker.engine.types import (
+    AudioFormat,
+    EngineCapabilities,
+    EngineRequestError,
+    SynthesisRequest,
+)
 
 
 class MockTtsEngine:
@@ -32,6 +37,17 @@ class MockTtsEngine:
 
         return self._warmed_up
 
+    @property
+    def capabilities(self) -> EngineCapabilities:
+        """Return protocol capabilities supported by the mock engine."""
+
+        return EngineCapabilities(
+            streaming=True,
+            cancellation=True,
+            instructions=True,
+            voice_clone=False,
+        )
+
     def load(self) -> None:
         """Mark the mock model as loaded."""
 
@@ -43,6 +59,20 @@ class MockTtsEngine:
         if not self._loaded:
             self.load()
         self._warmed_up = True
+
+    def validate_request(
+        self,
+        request: SynthesisRequest,
+    ) -> Optional[EngineRequestError]:
+        """Validate that the mock engine can satisfy the requested output."""
+
+        if request.output == AudioFormat.default():
+            return None
+        return EngineRequestError(
+            category="request_error",
+            code="unsupported_audio_format",
+            message="mock engine supports only s16le 24000 Hz mono",
+        )
 
     def synthesize_stream(
         self,
@@ -83,4 +113,3 @@ def _sine_chunk(samples: int, start_sample: int) -> bytes:
         out.extend(struct.pack("<h", sample))
 
     return bytes(out)
-

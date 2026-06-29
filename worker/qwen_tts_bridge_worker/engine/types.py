@@ -7,6 +7,35 @@ from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
+class EngineCapabilities:
+    """Feature flags announced by an engine in the ready message."""
+
+    streaming: bool = True
+    cancellation: bool = True
+    instructions: bool = True
+    voice_clone: bool = False
+
+    def to_payload(self) -> dict[str, bool]:
+        """Convert capabilities to protocol JSON fields."""
+
+        return {
+            "streaming": self.streaming,
+            "cancellation": self.cancellation,
+            "instructions": self.instructions,
+            "voice_clone": self.voice_clone,
+        }
+
+
+@dataclass(frozen=True)
+class EngineRequestError:
+    """Structured request validation error produced by an engine."""
+
+    category: str
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
 class AudioFormat:
     """PCM audio format used for worker output."""
 
