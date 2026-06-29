@@ -54,4 +54,17 @@ struct ParseResult {
     Frame frame;                                    ///< Parsed frame when status is FrameReady.
 };
 
+/// \struct EncodeResult
+/// \brief Result returned by protocol frame encoders.
+struct EncodeResult {
+    std::vector<std::byte> bytes;              ///< Encoded frame when encoding succeeds.
+    EncodeError error = EncodeError::None;    ///< Encode error, if any.
+    std::string message;                      ///< Human-readable diagnostic text.
+
+    /// \brief Returns true when encoding succeeded.
+    explicit operator bool() const noexcept {
+        return error == EncodeError::None;
+    }
+};
+
 } // namespace qwen_tts_bridge

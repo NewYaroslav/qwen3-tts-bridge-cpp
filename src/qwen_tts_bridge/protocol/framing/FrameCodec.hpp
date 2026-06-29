@@ -25,17 +25,22 @@ std::uint32_t max_payload_size(FrameType frame_type);
 /// \param frame_type Payload category.
 /// \param request_id Session or request identifier.
 /// \param payload Payload bytes.
-/// \return Binary frame bytes ready to write to a transport.
-std::vector<std::byte> encode_frame(
+/// \return Encode result with binary frame bytes when successful.
+EncodeResult encode_frame(
     FrameType frame_type,
     RequestId request_id,
     const std::vector<std::byte>& payload);
 
-/// \brief Encodes a protocol frame with an explicit header.
+/// \brief Encodes a protocol frame with an explicit fixed-size v1 header.
+///
+/// Protocol v1 senders cannot emit header extension bytes. Therefore
+/// `header.header_size` must be exactly `ProtocolLimits::min_header_size`.
+/// `header.payload_size` must also match the payload size.
+///
 /// \param header Header values to encode.
 /// \param payload Payload bytes.
-/// \return Binary frame bytes ready to write to a transport.
-std::vector<std::byte> encode_frame(
+/// \return Encode result with binary frame bytes when successful.
+EncodeResult encode_frame(
     const FrameHeader& header,
     const std::vector<std::byte>& payload);
 

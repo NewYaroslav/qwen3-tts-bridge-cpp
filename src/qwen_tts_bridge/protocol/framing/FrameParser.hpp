@@ -4,6 +4,7 @@
 /// \brief Incremental parser for QwenTTSBridge protocol v1 frames.
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 #include <qwen_tts_bridge/data.hpp>
@@ -20,6 +21,10 @@ namespace qwen_tts_bridge {
 class FrameParser {
 public:
     /// \brief Appends bytes to the internal parser buffer.
+    ///
+    /// Bytes appended after a fatal framing error are ignored until `clear()`
+    /// resets the parser state.
+    ///
     /// \param data Pointer to bytes. Null pointers are ignored.
     /// \param size Number of bytes to append.
     void append(const std::byte* data, std::size_t size);
@@ -36,10 +41,20 @@ public:
     std::size_t buffered_size() const;
 
     /// \brief Clears all buffered bytes.
+    ///
+    /// This also clears a previous fatal framing state, allowing the parser to
+    /// be reused for a new trusted byte stream.
     void clear();
 
 private:
+    void compact_buffer();
+    ParseResult make_fatal(ProtocolError error, const std::string& message);
+
     std::vector<std::byte> buffer_;
+    std::size_t read_offset_ = 0;
+    bool fatal_ = false;
+    ProtocolError fatal_error_ = ProtocolError::None;
+    std::string fatal_message_;
 };
 
 } // namespace qwen_tts_bridge
