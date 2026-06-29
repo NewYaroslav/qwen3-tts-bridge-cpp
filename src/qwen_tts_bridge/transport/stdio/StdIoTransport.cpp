@@ -511,7 +511,8 @@ private:
                 return;
             }
 
-            if (event.type != CallbackEventType::Exit && would_overflow_callback_queue(event)) {
+            if (event.type != CallbackEventType::Exit
+                && would_overflow_regular_callback_queue(event)) {
                 if (!callback_queue_overflowed_) {
                     callback_queue_overflowed_ = true;
                     enqueue_callback_event_locked(make_callback_queue_overflow_error());
@@ -529,7 +530,7 @@ private:
         }
     }
 
-    bool would_overflow_callback_queue(const CallbackEvent& event) const {
+    bool would_overflow_regular_callback_queue(const CallbackEvent& event) const {
         const auto event_size = callback_event_payload_size(event);
         return callback_events_.size() >= options_.max_callback_queue_events
             || event_size > options_.max_callback_queue_bytes
