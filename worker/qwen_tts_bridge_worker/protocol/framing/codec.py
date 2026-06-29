@@ -86,8 +86,9 @@ def _validate_outgoing_frame(header: FrameHeader, payload_size: int) -> None:
         raise ValueError("unsupported frame flags")
     if not 0 <= header.request_id <= 0xFFFFFFFFFFFFFFFF:
         raise ValueError("request_id is outside u64 range")
+    if header.payload_size != payload_size:
+        raise ValueError("header payload_size does not match payload bytes")
     if payload_size > MAX_FRAME_PAYLOAD_BYTES:
         raise ValueError("payload size exceeds absolute frame limit")
     if payload_size > max_payload_size(FrameType(header.frame_type)):
         raise ValueError("payload size exceeds frame type limit")
-

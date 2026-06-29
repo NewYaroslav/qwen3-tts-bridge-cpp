@@ -36,4 +36,16 @@ enum class ProtocolError {
     PayloadTooLarge               ///< payload_size exceeds frame or type limits.
 };
 
+/// \enum EncodeError
+/// \brief Errors reported while building outbound protocol frames.
+enum class EncodeError {
+    None,                         ///< No encode error.
+    UnsupportedProtocolVersion,   ///< Header protocol_version is unsupported.
+    UnsupportedHeaderSize,        ///< v1 encoder cannot emit header extensions.
+    UnknownFrameType,             ///< frame_type is not defined by v1.
+    UnsupportedFlags,             ///< flags contains a non-zero unsupported value.
+    PayloadSizeMismatch,          ///< Header payload_size does not match payload bytes.
+    PayloadTooLarge               ///< Payload exceeds frame or type limits.
+};
+
 } // namespace qwen_tts_bridge

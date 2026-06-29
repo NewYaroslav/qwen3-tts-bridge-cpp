@@ -1,5 +1,8 @@
 #include <qwen_tts_bridge/protocol/framing/FrameCodec.hpp>
 
+#include <limits>
+#include <utility>
+
 namespace qwen_tts_bridge {
 namespace {
 
@@ -23,6 +26,13 @@ void write_u64_le(std::vector<std::byte>& out, std::uint64_t value) {
     }
 }
 
+EncodeResult encode_error(EncodeError error, const std::string& message) {
+    EncodeResult result;
+    result.error = error;
+    result.message = message;
+    return result;
+}
+
 } // namespace
 
 bool is_known_frame_type(std::uint16_t value) {
@@ -44,7 +54,7 @@ std::uint32_t max_payload_size(FrameType frame_type) {
     return 0;
 }
 
-std::vector<std::byte> encode_frame(
+[[nodiscard]] EncodeResult encode_frame(
     FrameType frame_type,
     RequestId request_id,
     const std::vector<std::byte>& payload) {
@@ -55,9 +65,49 @@ std::vector<std::byte> encode_frame(
     return encode_frame(header, payload);
 }
 
-std::vector<std::byte> encode_frame(
+[[nodiscard]] EncodeResult encode_frame(
     const FrameHeader& header,
     const std::vector<std::byte>& payload) {
+    if (header.protocol_version != ProtocolLimits::protocol_version) {
+        return encode_error(
+            EncodeError::UnsupportedProtocolVersion,
+            "unsupported protocol version");
+    }
+
+    if (header.header_size != ProtocolLimits::min_header_size) {
+        return encode_error(
+            EncodeError::UnsupportedHeaderSize,
+            "v1 encoder cannot emit header extensions");
+    }
+
+    const auto frame_type_value = static_cast<std::uint16_t>(header.frame_type);
+    if (!is_known_frame_type(frame_type_value)) {
+        return encode_error(EncodeError::UnknownFrameType, "unknown frame type");
+    }
+
+    if (header.flags != 0) {
+        return encode_error(EncodeError::UnsupportedFlags, "unsupported frame flags");
+    }
+
+    if (payload.size() > static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
+        return encode_error(
+            EncodeError::PayloadTooLarge,
+            "payload size exceeds uint32 limit");
+    }
+
+    if (header.payload_size != payload.size()) {
+        return encode_error(
+            EncodeError::PayloadSizeMismatch,
+            "header payload_size does not match payload bytes");
+    }
+
+    if (payload.size() > ProtocolLimits::max_frame_payload_bytes ||
+        payload.size() > max_payload_size(header.frame_type)) {
+        return encode_error(
+            EncodeError::PayloadTooLarge,
+            "payload size exceeds v1 limit");
+    }
+
     std::vector<std::byte> out;
     out.reserve(ProtocolLimits::min_header_size + payload.size());
 
@@ -73,7 +123,10 @@ std::vector<std::byte> encode_frame(
     write_u64_le(out, header.request_id);
 
     out.insert(out.end(), payload.begin(), payload.end());
-    return out;
+
+    EncodeResult result;
+    result.bytes = std::move(out);
+    return result;
 }
 
 } // namespace qwen_tts_bridge

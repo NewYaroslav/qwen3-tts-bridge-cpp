@@ -8,6 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT_DIR / "worker"))
 
 from qwen_tts_bridge_worker.protocol import (  # noqa: E402
+    FrameHeader,
     MIN_HEADER_SIZE,
     PROTOCOL_VERSION,
     FrameParser,
@@ -15,6 +16,7 @@ from qwen_tts_bridge_worker.protocol import (  # noqa: E402
     ParseStatus,
     ProtocolError,
     encode_frame,
+    encode_frame_with_header,
 )
 
 
@@ -170,6 +172,34 @@ class ProtocolFrameTests(unittest.TestCase):
 
         self.assertEqual(ParseStatus.FATAL_ERROR, result.status)
         self.assertEqual(ProtocolError.PAYLOAD_TOO_LARGE, result.error)
+
+    def test_fatal_parser_stays_fatal_until_clear(self) -> None:
+        bad = bytearray(encode_frame(FrameType.CONTROL_JSON, 0, b"{}"))
+        bad[0] = ord("X")
+        good = encode_frame(FrameType.CONTROL_JSON, 0, b"{}")
+
+        parser = FrameParser()
+        parser.append(bad)
+
+        result = parser.parse_next()
+        self.assertEqual(ParseStatus.FATAL_ERROR, result.status)
+        self.assertEqual(ProtocolError.INVALID_MAGIC, result.error)
+
+        parser.append(good)
+        result = parser.parse_next()
+        self.assertEqual(ParseStatus.FATAL_ERROR, result.status)
+        self.assertEqual(ProtocolError.INVALID_MAGIC, result.error)
+
+        parser.clear()
+        parser.append(good)
+        result = parser.parse_next()
+        self.assertEqual(ParseStatus.FRAME_READY, result.status)
+
+    def test_encode_explicit_header_rejects_payload_size_mismatch(self) -> None:
+        header = FrameHeader(payload_size=0)
+
+        with self.assertRaises(ValueError):
+            encode_frame_with_header(header, b"{}")
 
 
 if __name__ == "__main__":
