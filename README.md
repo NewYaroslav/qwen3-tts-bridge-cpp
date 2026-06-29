@@ -98,9 +98,8 @@ struct TtsRequest {
 
 struct PcmChunk {
     std::uint64_t request_id = 0;
-    std::vector<std::int16_t> samples;
-    std::uint32_t sample_rate = 24000;
-    std::uint16_t channels = 1;
+    AudioFormat format;
+    std::vector<std::byte> bytes;
 };
 ```
 
