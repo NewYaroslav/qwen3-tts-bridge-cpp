@@ -4,3 +4,6 @@
 [submodule "external/python/Qwen3-TTS-streaming"]
 	path = external/python/Qwen3-TTS-streaming
 	url = https://github.com/NewYaroslav/Qwen3-TTS-streaming.git
+[submodule "external/cpp/nlohmann-json"]
+	path = external/cpp/nlohmann-json
+	url = https://github.com/nlohmann/json.git

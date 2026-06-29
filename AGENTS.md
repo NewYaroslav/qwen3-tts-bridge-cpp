@@ -195,6 +195,16 @@ external/cpp/tiny-process-library/
     https://gitlab.com/eidheim/tiny-process-library
 ```
 
+Approved C++ JSON dependency:
+
+```text
+external/cpp/nlohmann-json/
+    https://github.com/nlohmann/json
+```
+
+Keep `nlohmann/json` private to implementation files. Public headers must
+continue to expose project DTOs and result types, not JSON-library types.
+
 Python Qwen source dependency:
 
 ```text
@@ -600,8 +610,32 @@ state is represented by `completed`, `cancelled`, or `error_json`.
 For WebSocket support later, one WebSocket binary message must contain exactly
 one complete QTB frame. Text WebSocket messages are not allowed.
 
-If C++ JSON parsing becomes more than a narrow known-field parser, ask the user
-before adding a JSON dependency such as `nlohmann/json`.
+`nlohmann/json` is approved for the C++ `protocol/control` implementation.
+Keep it out of public headers and do not add another JSON dependency without
+explicit user approval.
+
+## Deferred Agent Notes
+
+Keep a visible note for intentionally deferred protocol and architecture
+choices. Revisit these before making the related layer public or building a
+larger abstraction on top of it:
+
+- `protocol/control` decode functions currently assume the framing layer has
+  already enforced `MAX_CONTROL_PAYLOAD_BYTES` and `MAX_ERROR_PAYLOAD_BYTES`.
+  `WorkerSession` must preserve that call order. If the JSON codec becomes a
+  direct public entry point or starts accepting unframed data, add an explicit
+  codec-side payload-size guard.
+- `error_json.category` and `error_json.code` remain strings for forward
+  compatibility. The codec should require them to be present and non-empty, but
+  should not enforce a closed list until the project deliberately chooses a
+  stricter interoperability policy.
+- `src/qwen_tts_bridge/protocol/control/ControlCodec.cpp` may remain a single
+  implementation file while the control layer is small. When it grows further,
+  split it by responsibility into files such as `ControlDecode.cpp`,
+  `ControlEncode.cpp`, `ControlValidation.cpp`, and optionally
+  `ControlMessages.cpp`. Keep JSON helper functions private to
+  `protocol/control`; do not create a generic `utils` or `helpers` dumping
+  ground unless there is real reuse across this subdomain.
 
 ## Request Lifecycle
 
