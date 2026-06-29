@@ -171,6 +171,10 @@ ControlMessageType control_message_type(const ControlMessage& message);
 
 /// \struct ErrorMessage
 /// \brief Worker-to-client error_json payload.
+///
+/// Category and code are kept as strings for forward-compatible protocol
+/// extensions. The control codec validates that they are present and non-empty,
+/// but it does not enforce a closed set of known wire values.
 struct ErrorMessage {
     std::string category;
     std::string code;

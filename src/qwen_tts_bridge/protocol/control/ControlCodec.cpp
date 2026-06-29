@@ -243,6 +243,43 @@ bool read_required_u32(
     return true;
 }
 
+ControlCodecError validate_non_empty_string(
+    const std::string& value,
+    const char* name,
+    std::string& diagnostic) {
+    if (!value.empty()) {
+        return ControlCodecError::None;
+    }
+
+    diagnostic = std::string("field must not be empty: ") + name;
+    return ControlCodecError::InvalidFieldType;
+}
+
+ControlCodecError validate_audio_format(
+    const AudioFormat& format,
+    const char* name,
+    std::string& diagnostic) {
+    const std::string prefix = std::string(name) + '.';
+    const std::string sample_format_name = prefix + "sample_format";
+    if (const auto error = validate_non_empty_string(
+            format.sample_format,
+            sample_format_name.c_str(),
+            diagnostic);
+        error != ControlCodecError::None) {
+        return error;
+    }
+    if (format.sample_rate == 0) {
+        diagnostic = prefix + "sample_rate must be greater than zero";
+        return ControlCodecError::InvalidFieldType;
+    }
+    if (format.channels == 0) {
+        diagnostic = prefix + "channels must be greater than zero";
+        return ControlCodecError::InvalidFieldType;
+    }
+
+    return ControlCodecError::None;
+}
+
 bool read_audio_format(
     const Json& object,
     AudioFormat& out,
@@ -254,13 +291,18 @@ bool read_audio_format(
         return false;
     }
 
-    if (!read_optional_string(object, "sample_format", out.sample_format, diagnostic, error)) {
+    if (!read_required_string(object, "sample_format", out.sample_format, diagnostic, error)) {
         return false;
     }
     if (!read_required_u32(object, "sample_rate", out.sample_rate, diagnostic, error)) {
         return false;
     }
     if (!read_required_u32(object, "channels", out.channels, diagnostic, error)) {
+        return false;
+    }
+
+    error = validate_audio_format(out, "audio_format", diagnostic);
+    if (error != ControlCodecError::None) {
         return false;
     }
 
@@ -379,6 +421,89 @@ bool direction_allows(
 }
 
 template <typename Message>
+ControlCodecError validate_control_payload(
+    const Message& value,
+    std::string& diagnostic) {
+    if constexpr (std::is_same_v<Message, HelloMessage>) {
+        if (const auto error = validate_non_empty_string(
+                value.client_name,
+                "client_name",
+                diagnostic);
+            error != ControlCodecError::None) {
+            return error;
+        }
+        return validate_non_empty_string(
+            value.client_version,
+            "client_version",
+            diagnostic);
+    }
+    else if constexpr (std::is_same_v<Message, SynthesizeMessage>) {
+        if (const auto error = validate_non_empty_string(value.text, "text", diagnostic);
+            error != ControlCodecError::None) {
+            return error;
+        }
+        return validate_audio_format(value.output, "output", diagnostic);
+    }
+    else if constexpr (std::is_same_v<Message, ShutdownMessage>) {
+        if (value.mode == "cancel") {
+            return ControlCodecError::None;
+        }
+        diagnostic = "unsupported shutdown mode";
+        return ControlCodecError::InvalidFieldType;
+    }
+    else if constexpr (std::is_same_v<Message, ReadyMessage>) {
+        if (const auto error = validate_non_empty_string(
+                value.worker_version,
+                "worker_version",
+                diagnostic);
+            error != ControlCodecError::None) {
+            return error;
+        }
+        return validate_non_empty_string(value.session_id, "session_id", diagnostic);
+    }
+    else if constexpr (std::is_same_v<Message, QueuedMessage>) {
+        if (!value.has_position || value.position > 0) {
+            return ControlCodecError::None;
+        }
+        diagnostic = "position must be greater than zero";
+        return ControlCodecError::InvalidFieldType;
+    }
+    else if constexpr (std::is_same_v<Message, StartedMessage>) {
+        return validate_audio_format(value.audio_format, "audio_format", diagnostic);
+    }
+    else {
+        return ControlCodecError::None;
+    }
+}
+
+ControlCodecError validate_control_message(
+    const ControlMessage& message,
+    std::string& diagnostic) {
+    return std::visit(
+        [&diagnostic](const auto& value) {
+            return validate_control_payload(value, diagnostic);
+        },
+        message);
+}
+
+ControlCodecError validate_error_message(
+    const ErrorMessage& message,
+    std::string& diagnostic) {
+    if (const auto error = validate_non_empty_string(
+            message.category,
+            "category",
+            diagnostic);
+        error != ControlCodecError::None) {
+        return error;
+    }
+    if (const auto error = validate_non_empty_string(message.code, "code", diagnostic);
+        error != ControlCodecError::None) {
+        return error;
+    }
+    return validate_non_empty_string(message.message, "message", diagnostic);
+}
+
+template <typename Message>
 ControlDecodeResult make_control_message(Message message) {
     ControlDecodeResult result;
     result.message = std::move(message);
@@ -397,6 +522,10 @@ ControlDecodeResult decode_known_control_message(
             !read_required_string(object, "client_version", message.client_version, diagnostic, error)) {
             return control_error(error, diagnostic);
         }
+        error = validate_control_payload(message, diagnostic);
+        if (error != ControlCodecError::None) {
+            return control_error(error, diagnostic);
+        }
         return make_control_message(std::move(message));
     }
 
@@ -407,6 +536,10 @@ ControlDecodeResult decode_known_control_message(
             !read_optional_string(object, "speaker", message.speaker, diagnostic, error) ||
             !read_optional_string(object, "instruction", message.instruction, diagnostic, error) ||
             !read_optional_audio_format(object, "output", message.output, diagnostic, error)) {
+            return control_error(error, diagnostic);
+        }
+        error = validate_control_payload(message, diagnostic);
+        if (error != ControlCodecError::None) {
             return control_error(error, diagnostic);
         }
         return make_control_message(std::move(message));
@@ -445,6 +578,10 @@ ControlDecodeResult decode_known_control_message(
             !read_capabilities(object, message.capabilities, diagnostic, error)) {
             return control_error(error, diagnostic);
         }
+        error = validate_control_payload(message, diagnostic);
+        if (error != ControlCodecError::None) {
+            return control_error(error, diagnostic);
+        }
         return make_control_message(std::move(message));
     }
 
@@ -453,12 +590,20 @@ ControlDecodeResult decode_known_control_message(
         if (!read_optional_u32(object, "position", message.position, message.has_position, diagnostic, error)) {
             return control_error(error, diagnostic);
         }
+        error = validate_control_payload(message, diagnostic);
+        if (error != ControlCodecError::None) {
+            return control_error(error, diagnostic);
+        }
         return make_control_message(message);
     }
 
     if (type == "started") {
         StartedMessage message;
         if (!read_required_audio_format(object, "audio_format", message.audio_format, diagnostic, error)) {
+            return control_error(error, diagnostic);
+        }
+        error = validate_control_payload(message, diagnostic);
+        if (error != ControlCodecError::None) {
             return control_error(error, diagnostic);
         }
         return make_control_message(std::move(message));
@@ -667,6 +812,10 @@ ErrorDecodeResult decode_error_object(const Json& object) {
         !read_required_string(object, "message", message.message, diagnostic, error)) {
         return error_error(error, diagnostic);
     }
+    error = validate_error_message(message, diagnostic);
+    if (error != ControlCodecError::None) {
+        return error_error(error, diagnostic);
+    }
 
     ErrorDecodeResult result;
     result.message = std::move(message);
@@ -811,6 +960,11 @@ ControlMessageType control_message_type(const ControlMessage& message) {
 
 [[nodiscard]] JsonPayloadEncodeResult encode_control_message(
     const ControlMessage& message) {
+    std::string diagnostic;
+    const auto error = validate_control_message(message, diagnostic);
+    if (error != ControlCodecError::None) {
+        return encode_error(error, diagnostic);
+    }
     return encode_json_payload(control_message_to_json(message));
 }
 
@@ -832,6 +986,11 @@ ControlMessageType control_message_type(const ControlMessage& message) {
 
 [[nodiscard]] JsonPayloadEncodeResult encode_error_message(
     const ErrorMessage& message) {
+    std::string diagnostic;
+    const auto error = validate_error_message(message, diagnostic);
+    if (error != ControlCodecError::None) {
+        return encode_error(error, diagnostic);
+    }
     return encode_json_payload(error_message_to_json(message));
 }
 

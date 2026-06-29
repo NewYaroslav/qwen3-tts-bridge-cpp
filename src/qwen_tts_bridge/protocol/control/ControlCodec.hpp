@@ -11,6 +11,10 @@
 namespace qwen_tts_bridge {
 
 /// \brief Decodes a UTF-8 control_json payload.
+///
+/// The payload is expected to come from a frame parser that already validated
+/// the type-specific control payload size limit.
+///
 /// \param data Payload bytes.
 /// \param size Payload size in bytes.
 /// \param direction Expected message direction.
@@ -21,6 +25,10 @@ namespace qwen_tts_bridge {
     ControlMessageDirection direction);
 
 /// \brief Decodes a UTF-8 control_json payload.
+///
+/// The payload is expected to come from a frame parser that already validated
+/// the type-specific control payload size limit.
+///
 /// \param payload Payload bytes.
 /// \param direction Expected message direction.
 /// \return Decoded message or a JSON-level protocol error.
@@ -35,6 +43,10 @@ namespace qwen_tts_bridge {
     const ControlMessage& message);
 
 /// \brief Decodes a UTF-8 error_json payload.
+///
+/// The payload is expected to come from a frame parser that already validated
+/// the type-specific error payload size limit.
+///
 /// \param data Payload bytes.
 /// \param size Payload size in bytes.
 /// \return Decoded worker error payload or a JSON-level protocol error.
@@ -43,6 +55,10 @@ namespace qwen_tts_bridge {
     std::size_t size);
 
 /// \brief Decodes a UTF-8 error_json payload.
+///
+/// The payload is expected to come from a frame parser that already validated
+/// the type-specific error payload size limit.
+///
 /// \param payload Payload bytes.
 /// \return Decoded worker error payload or a JSON-level protocol error.
 [[nodiscard]] ErrorDecodeResult decode_error_message(

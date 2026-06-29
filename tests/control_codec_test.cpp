@@ -256,6 +256,113 @@ void test_reject_invalid_shutdown_mode() {
     CHECK(result.error == ControlCodecError::InvalidFieldType);
 }
 
+void test_reject_started_audio_format_without_sample_format() {
+    const auto result = decode_worker(
+        "{\"message_type\":\"started\","
+        "\"audio_format\":{"
+        "\"sample_rate\":24000,"
+        "\"channels\":1"
+        "}}");
+    CHECK(!result);
+    CHECK(result.error == ControlCodecError::MissingRequiredField);
+}
+
+void test_reject_audio_format_empty_or_zero_values() {
+    const auto empty_format = decode_worker(
+        "{\"message_type\":\"started\","
+        "\"audio_format\":{"
+        "\"sample_format\":\"\","
+        "\"sample_rate\":24000,"
+        "\"channels\":1"
+        "}}");
+    CHECK(!empty_format);
+    CHECK(empty_format.error == ControlCodecError::InvalidFieldType);
+
+    const auto zero_rate = decode_worker(
+        "{\"message_type\":\"started\","
+        "\"audio_format\":{"
+        "\"sample_format\":\"s16le\","
+        "\"sample_rate\":0,"
+        "\"channels\":1"
+        "}}");
+    CHECK(!zero_rate);
+    CHECK(zero_rate.error == ControlCodecError::InvalidFieldType);
+
+    const auto zero_channels = decode_worker(
+        "{\"message_type\":\"started\","
+        "\"audio_format\":{"
+        "\"sample_format\":\"s16le\","
+        "\"sample_rate\":24000,"
+        "\"channels\":0"
+        "}}");
+    CHECK(!zero_channels);
+    CHECK(zero_channels.error == ControlCodecError::InvalidFieldType);
+}
+
+void test_reject_synthesize_output_without_sample_format() {
+    const auto result = decode_client(
+        "{\"message_type\":\"synthesize\","
+        "\"text\":\"hello\","
+        "\"output\":{"
+        "\"sample_rate\":24000,"
+        "\"channels\":1"
+        "}}");
+    CHECK(!result);
+    CHECK(result.error == ControlCodecError::MissingRequiredField);
+}
+
+void test_reject_queued_position_zero() {
+    const auto decoded = decode_worker(
+        "{\"message_type\":\"queued\","
+        "\"position\":0}");
+    CHECK(!decoded);
+    CHECK(decoded.error == ControlCodecError::InvalidFieldType);
+
+    QueuedMessage queued;
+    queued.has_position = true;
+    queued.position = 0;
+    const auto encoded = encode_control_message(ControlMessage{queued});
+    CHECK(!encoded);
+    CHECK(encoded.error == ControlCodecError::InvalidFieldType);
+}
+
+void test_reject_invalid_control_dto_encode() {
+    ShutdownMessage shutdown;
+    shutdown.mode = "wait";
+    const auto invalid_shutdown = encode_control_message(ControlMessage{shutdown});
+    CHECK(!invalid_shutdown);
+    CHECK(invalid_shutdown.error == ControlCodecError::InvalidFieldType);
+
+    StartedMessage started;
+    started.audio_format.channels = 0;
+    const auto invalid_format = encode_control_message(ControlMessage{started});
+    CHECK(!invalid_format);
+    CHECK(invalid_format.error == ControlCodecError::InvalidFieldType);
+}
+
+void test_reject_empty_required_strings() {
+    HelloMessage hello;
+    hello.client_name = "";
+    hello.client_version = "0.2.0";
+    const auto invalid_hello = encode_control_message(ControlMessage{hello});
+    CHECK(!invalid_hello);
+    CHECK(invalid_hello.error == ControlCodecError::InvalidFieldType);
+
+    const auto invalid_text = decode_client(
+        "{\"message_type\":\"synthesize\","
+        "\"text\":\"\"}");
+    CHECK(!invalid_text);
+    CHECK(invalid_text.error == ControlCodecError::InvalidFieldType);
+
+    ErrorMessage error;
+    error.category = "request_error";
+    error.code = "";
+    error.message = "bad request";
+    const auto invalid_error = encode_error_message(error);
+    CHECK(!invalid_error);
+    CHECK(invalid_error.error == ControlCodecError::InvalidFieldType);
+}
+
 void test_reject_error_json_header_fields() {
     const auto result = decode_error_message(bytes_from_string(
         "{\"message_type\":\"error\","
@@ -287,6 +394,12 @@ int main() {
     test_reject_missing_required_field();
     test_reject_invalid_field_type();
     test_reject_invalid_shutdown_mode();
+    test_reject_started_audio_format_without_sample_format();
+    test_reject_audio_format_empty_or_zero_values();
+    test_reject_synthesize_output_without_sample_format();
+    test_reject_queued_position_zero();
+    test_reject_invalid_control_dto_encode();
+    test_reject_empty_required_strings();
     test_reject_error_json_header_fields();
     return 0;
 }
