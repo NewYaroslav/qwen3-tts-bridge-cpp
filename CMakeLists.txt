@@ -34,6 +34,7 @@ add_library(qwen_tts_bridge
     src/qwen_tts_bridge/protocol/control/ControlCodec.cpp
     src/qwen_tts_bridge/protocol/framing/FrameCodec.cpp
     src/qwen_tts_bridge/protocol/framing/FrameParser.cpp
+    src/qwen_tts_bridge/session/WorkerSession.cpp
     src/qwen_tts_bridge/transport/stdio/StdIoTransport.cpp
 )
 add_library(QwenTTSBridge::qwen_tts_bridge ALIAS qwen_tts_bridge)
@@ -95,7 +96,24 @@ if(QWEN_TTS_BRIDGE_BUILD_TESTS)
         )
 
         add_test(NAME stdio_transport_test COMMAND stdio_transport_test)
+
+        add_executable(worker_session_test
+            tests/worker_session_test.cpp
+        )
+
+        target_link_libraries(worker_session_test
+            PRIVATE
+                QwenTTSBridge::qwen_tts_bridge
+        )
+
+        target_compile_definitions(worker_session_test
+            PRIVATE
+                QWEN_TTS_BRIDGE_TEST_PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
+                QWEN_TTS_BRIDGE_TEST_WORKER_DIR="${QWEN_TTS_BRIDGE_WORKER_DIR}"
+        )
+
+        add_test(NAME worker_session_test COMMAND worker_session_test)
     else()
-        message(WARNING "Python3 interpreter not found; stdio_transport_test will not be built")
+        message(WARNING "Python3 interpreter not found; stdio/worker session tests will not be built")
     endif()
 endif()

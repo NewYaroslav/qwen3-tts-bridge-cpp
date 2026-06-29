@@ -10,6 +10,15 @@
 
 namespace qwen_tts_bridge {
 
+/// \enum SendResult
+/// \brief Result of handing outbound bytes to a transport.
+enum class SendResult {
+    Accepted,  ///< Bytes were accepted by the transport.
+    WouldBlock, ///< Transport is alive, but cannot accept bytes immediately.
+    Closed,    ///< Transport is stopped, closing, or has no running peer.
+    Failed     ///< Transport write failed for a non-recoverable local reason.
+};
+
 /// \class ITransport
 /// \brief Byte-oriented transport abstraction used by the protocol layer.
 ///
@@ -48,12 +57,12 @@ public:
     /// \brief Sends bytes to the worker.
     /// \param data Pointer to bytes. Null is valid only when size is zero.
     /// \param size Number of bytes to send.
-    /// \return True when bytes were accepted by the transport.
+    /// \return Detailed result of accepting the outbound bytes.
     ///
     /// After a successful start, concurrent send calls are allowed and must be
     /// serialized by the transport implementation. A send attempted after
-    /// shutdown starts should fail quickly.
-    virtual bool send(const std::byte* data, std::size_t size) = 0;
+    /// shutdown starts should return quickly with `SendResult::Closed`.
+    virtual SendResult send(const std::byte* data, std::size_t size) = 0;
 
     /// \brief Returns whether the transport currently has a running peer.
     virtual bool is_running() const = 0;

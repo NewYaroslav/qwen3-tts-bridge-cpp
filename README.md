@@ -213,6 +213,13 @@ user callbacks
 The transport layer should remain byte-oriented:
 
 ```cpp
+enum class SendResult {
+    Accepted,
+    WouldBlock,
+    Closed,
+    Failed
+};
+
 class ITransport {
 public:
     using Bytes = std::vector<std::byte>;
@@ -221,7 +228,7 @@ public:
     virtual ~ITransport() = default;
 
     virtual bool start(ReceiveHandler receive_handler) = 0;
-    virtual bool send(const std::byte* data, std::size_t size) = 0;
+    virtual SendResult send(const std::byte* data, std::size_t size) = 0;
     virtual bool is_running() const = 0;
     virtual void stop() = 0;
 };
