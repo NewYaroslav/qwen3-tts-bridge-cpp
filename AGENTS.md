@@ -636,6 +636,10 @@ larger abstraction on top of it:
   `ControlMessages.cpp`. Keep JSON helper functions private to
   `protocol/control`; do not create a generic `utils` or `helpers` dumping
   ground unless there is real reuse across this subdomain.
+- Future native audio playback and Unity/Salsa integration notes live in
+  `docs/audio-and-unity-integration.md`. Keep physical playback out of the core
+  bridge; add native playback only as an optional module or example, and prefer
+  one active playback sink for Unity avatar scenarios.
 
 ## Request Lifecycle
 

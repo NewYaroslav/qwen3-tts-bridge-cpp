@@ -231,6 +231,13 @@ The exact interface may evolve, but `ITransport` should not know anything about
 Qwen, synthesis requests, JSON payloads, or PCM meaning. Protocol parsing and
 request state live above the transport.
 
+## Audio And Unity Notes
+
+The core bridge returns streaming PCM and does not own physical audio playback.
+Future native playback helpers, Unity/Salsa integration, and one-active-sink
+rules are captured in
+[docs/audio-and-unity-integration.md](docs/audio-and-unity-integration.md).
+
 ## Communication Protocol
 
 The protocol must be versioned from the beginning.
