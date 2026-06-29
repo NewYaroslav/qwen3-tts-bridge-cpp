@@ -45,6 +45,11 @@ struct StdIoTransportOptions {
 /// stdin carries client-to-worker protocol frames. stdout carries
 /// worker-to-client protocol frames. stderr is diagnostic text and is not
 /// passed to the protocol parser.
+///
+/// start() and stop() are serialized internally. send() may be called from
+/// multiple threads after a successful start. stop() is idempotent and may be
+/// called from a transport callback, but object destruction from a callback is
+/// not supported.
 class StdIoTransport final : public ITransport {
 public:
     /// \brief Creates a stdio transport with process launch options.
@@ -56,13 +61,26 @@ public:
     StdIoTransport(const StdIoTransport&) = delete;
     StdIoTransport& operator=(const StdIoTransport&) = delete;
 
+    /// \brief Starts the worker process.
+    /// \return True on success; false when startup validation or process launch
+    /// fails.
     bool start(
         ReceiveHandler receive_handler,
         ErrorHandler error_handler,
         ExitHandler exit_handler) override;
 
+    /// \brief Sends bytes to worker stdin.
+    /// \return True when the bytes were written; false when stopped, stopping,
+    /// or the pipe write fails.
     bool send(const std::byte* data, std::size_t size) override;
+
+    /// \brief Returns true while the worker process is considered running.
     bool is_running() const override;
+
+    /// \brief Requests deterministic worker shutdown.
+    ///
+    /// This call may block until shutdown_timeout expires and the process is
+    /// terminated as a fallback.
     void stop() override;
 
 private:

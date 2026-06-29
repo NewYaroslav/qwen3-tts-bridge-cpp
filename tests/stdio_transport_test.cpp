@@ -1,14 +1,17 @@
 #include <qwen_tts_bridge/protocol/framing.hpp>
 #include <qwen_tts_bridge/transport/stdio/StdIoTransport.hpp>
 
+#include <atomic>
 #include <condition_variable>
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <deque>
+#include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -46,6 +49,91 @@ std::string string_from_bytes(const std::vector<std::byte>& bytes) {
 bool contains(const Frame& frame, const std::string& text) {
     return string_from_bytes(frame.payload).find(text) != std::string::npos;
 }
+
+StdIoTransportOptions make_python_options(
+    std::string script,
+    std::chrono::milliseconds shutdown_timeout = std::chrono::seconds(5)) {
+    StdIoTransportOptions options;
+    options.arguments = {
+        QWEN_TTS_BRIDGE_TEST_PYTHON_EXECUTABLE,
+        "-c",
+        std::move(script)
+    };
+    options.shutdown_timeout = shutdown_timeout;
+    return options;
+}
+
+class RawCollector {
+public:
+    void on_bytes(ITransport::Bytes bytes) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        bytes_.append(string_from_bytes(bytes));
+        condition_.notify_all();
+    }
+
+    void on_error(std::string message) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        errors_.push_back(std::move(message));
+        condition_.notify_all();
+    }
+
+    void on_exit(int status) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        exited_ = true;
+        exit_status_ = status;
+        condition_.notify_all();
+    }
+
+    void on_stderr(std::string message) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stderr_.append(std::move(message));
+        condition_.notify_all();
+    }
+
+    void wait_for_text(const std::string& expected_text) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const bool ready = condition_.wait_for(lock, std::chrono::seconds(5), [&]() {
+            return bytes_.find(expected_text) != std::string::npos;
+        });
+        CHECK(ready);
+    }
+
+    void wait_for_stderr(const std::string& expected_text) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const bool ready = condition_.wait_for(lock, std::chrono::seconds(5), [&]() {
+            return stderr_.find(expected_text) != std::string::npos;
+        });
+        CHECK(ready);
+    }
+
+    int wait_for_exit() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const bool ready = condition_.wait_for(lock, std::chrono::seconds(5), [&]() {
+            return exited_;
+        });
+        CHECK(ready);
+        return exit_status_;
+    }
+
+    bool has_exit() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return exited_;
+    }
+
+    bool has_errors() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return !errors_.empty();
+    }
+
+private:
+    mutable std::mutex mutex_;
+    std::condition_variable condition_;
+    std::string bytes_;
+    std::string stderr_;
+    std::vector<std::string> errors_;
+    bool exited_ = false;
+    int exit_status_ = -1;
+};
 
 class FrameCollector {
 public:
@@ -193,9 +281,287 @@ void test_mock_worker_handshake_over_stdio_transport() {
     CHECK(!collector.has_errors());
 }
 
+void test_send_before_start_and_empty_send() {
+    StdIoTransport transport(make_python_options("import time; time.sleep(60)"));
+
+    std::byte byte{0x42};
+    CHECK(transport.send(nullptr, 0));
+    CHECK(!transport.send(&byte, 1));
+    transport.stop();
+}
+
+void test_missing_executable_start_failure() {
+#if defined(_WIN32)
+    StdIoTransportOptions options;
+    options.arguments = {"definitely_missing_qwen_tts_worker_for_transport_test.exe"};
+
+    RawCollector collector;
+    StdIoTransport transport(options);
+
+    CHECK(!transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+    CHECK(!transport.is_running());
+
+    CHECK(!transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+    transport.stop();
+#endif
+}
+
+void test_second_start_is_rejected() {
+    RawCollector collector;
+    StdIoTransport transport(make_python_options(
+        "import time; time.sleep(60)",
+        std::chrono::milliseconds(100)));
+
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    CHECK(!transport.start(
+        [](ITransport::Bytes) {},
+        [](std::string) {},
+        [](int) {}));
+
+    transport.stop();
+    CHECK(!transport.is_running());
+}
+
+void test_repeated_stop_and_destructor_shutdown() {
+    {
+        RawCollector collector;
+        StdIoTransport transport(make_python_options(
+            "import time; time.sleep(60)",
+            std::chrono::milliseconds(100)));
+
+        CHECK(transport.start(
+            [&](ITransport::Bytes bytes) {
+                collector.on_bytes(std::move(bytes));
+            },
+            [&](std::string message) {
+                collector.on_error(std::move(message));
+            },
+            [&](int status) {
+                collector.on_exit(status);
+            }));
+    }
+
+    StdIoTransport transport(make_python_options(
+        "import time; time.sleep(60)",
+        std::chrono::milliseconds(100)));
+    transport.stop();
+    transport.stop();
+}
+
+void test_stderr_is_delivered_separately() {
+    RawCollector collector;
+    StdIoTransportOptions options = make_python_options(
+        "import sys; sys.stderr.write('stderr-ok'); sys.stderr.flush()");
+    options.stderr_handler = [&](std::string message) {
+        collector.on_stderr(std::move(message));
+    };
+
+    StdIoTransport transport(options);
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    collector.wait_for_stderr("stderr-ok");
+    collector.wait_for_exit();
+    transport.stop();
+    CHECK(!collector.has_errors());
+}
+
+void test_stop_forces_kill_after_timeout() {
+    RawCollector collector;
+    StdIoTransport transport(make_python_options(
+        "import time; time.sleep(60)",
+        std::chrono::milliseconds(100)));
+
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    const auto started = std::chrono::steady_clock::now();
+    transport.stop();
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    CHECK(elapsed < std::chrono::seconds(5));
+    CHECK(!transport.is_running());
+    CHECK(collector.has_exit());
+}
+
+void test_stop_from_receive_callback() {
+    RawCollector collector;
+    StdIoTransport transport(make_python_options(
+        "import sys, time; sys.stdout.buffer.write(b'stop-from-callback'); "
+        "sys.stdout.flush(); time.sleep(60)",
+        std::chrono::milliseconds(100)));
+
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool callback_finished = false;
+
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+            transport.stop();
+
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                callback_finished = true;
+            }
+            condition.notify_all();
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        const bool ready = condition.wait_for(lock, std::chrono::seconds(5), [&]() {
+            return callback_finished;
+        });
+        CHECK(ready);
+    }
+
+    transport.stop();
+    CHECK(!transport.is_running());
+}
+
+void test_stop_can_kill_worker_while_send_is_blocked() {
+    RawCollector collector;
+    StdIoTransport transport(make_python_options(
+        "import time; time.sleep(60)",
+        std::chrono::milliseconds(100)));
+
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    std::vector<std::byte> payload(16u * 1024u * 1024u, std::byte{0x31});
+    std::atomic<bool> send_started{false};
+    std::atomic<bool> send_finished{false};
+
+    std::thread writer([&]() {
+        send_started = true;
+        transport.send(payload.data(), payload.size());
+        send_finished = true;
+    });
+
+    for (int attempt = 0; attempt < 50 && !send_started; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(send_started);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    const auto started = std::chrono::steady_clock::now();
+    transport.stop();
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    CHECK(elapsed < std::chrono::seconds(5));
+    writer.join();
+    CHECK(send_finished);
+    CHECK(!transport.is_running());
+}
+
+void test_unicode_working_directory_and_argument() {
+#if defined(_WIN32)
+    namespace fs = std::filesystem;
+
+    const std::string unicode_suffix = u8"qwen_tts_bridge_\u0442\u0435\u0441\u0442";
+    const std::string unicode_argument = u8"\u041f\u0440\u0438\u0432\u0435\u0442";
+    const fs::path directory = fs::temp_directory_path() / fs::u8path(unicode_suffix);
+    fs::create_directories(directory);
+
+    RawCollector collector;
+    StdIoTransportOptions options = make_python_options(
+        "import os, sys; "
+        "sys.stdout.buffer.write((os.getcwd() + '|' + sys.argv[1]).encode('utf-8')); "
+        "sys.stdout.flush()");
+    options.arguments.push_back(unicode_argument);
+    options.working_directory = directory.u8string();
+
+    StdIoTransport transport(options);
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    collector.wait_for_text(unicode_suffix);
+    collector.wait_for_text(unicode_argument);
+    collector.wait_for_exit();
+    transport.stop();
+
+    fs::remove_all(directory);
+#endif
+}
+
 } // namespace
 
 int main() {
     test_mock_worker_handshake_over_stdio_transport();
+    test_send_before_start_and_empty_send();
+    test_missing_executable_start_failure();
+    test_second_start_is_rejected();
+    test_repeated_stop_and_destructor_shutdown();
+    test_stderr_is_delivered_separately();
+    test_stop_forces_kill_after_timeout();
+    test_stop_from_receive_callback();
+    test_stop_can_kill_worker_while_send_is_blocked();
+    test_unicode_working_directory_and_argument();
     return 0;
 }

@@ -20,6 +20,14 @@ set(QWEN_TTS_BRIDGE_EXTERNAL_PYTHON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/py
 
 add_subdirectory("${QWEN_TTS_BRIDGE_EXTERNAL_CPP_DIR}/tiny-process-library" EXCLUDE_FROM_ALL)
 
+if(WIN32)
+    target_compile_definitions(tiny-process-library
+        PUBLIC
+            UNICODE
+            _UNICODE
+    )
+endif()
+
 add_library(qwen_tts_bridge
     src/qwen_tts_bridge/protocol/framing/FrameCodec.cpp
     src/qwen_tts_bridge/protocol/framing/FrameParser.cpp

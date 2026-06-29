@@ -37,6 +37,9 @@ public:
     /// \param error_handler Receives local transport errors.
     /// \param exit_handler Receives the worker process exit status.
     /// \return True when the transport started successfully.
+    ///
+    /// Implementations should report expected startup failures through the
+    /// return value and error callback instead of throwing them to callers.
     virtual bool start(
         ReceiveHandler receive_handler,
         ErrorHandler error_handler,
@@ -46,6 +49,10 @@ public:
     /// \param data Pointer to bytes. Null is valid only when size is zero.
     /// \param size Number of bytes to send.
     /// \return True when bytes were accepted by the transport.
+    ///
+    /// After a successful start, concurrent send calls are allowed and must be
+    /// serialized by the transport implementation. A send attempted after
+    /// shutdown starts should fail quickly.
     virtual bool send(const std::byte* data, std::size_t size) = 0;
 
     /// \brief Returns whether the transport currently has a running peer.
@@ -54,9 +61,11 @@ public:
     /// \brief Stops the transport deterministically.
     ///
     /// This method is idempotent. It may block while waiting for the worker
-    /// process and reader threads to exit.
+    /// process and reader threads to exit. It may be called from a transport
+    /// callback; in that case the implementation must not try to join the
+    /// callback thread from itself. Destroying the transport object from one of
+    /// its callbacks is not supported.
     virtual void stop() = 0;
 };
 
 } // namespace qwen_tts_bridge
-
