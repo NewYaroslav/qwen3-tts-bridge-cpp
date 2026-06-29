@@ -45,6 +45,10 @@ struct QwenTtsClientOptions {
 /// up, and sends `ready`. `synthesize_async()` does not wait for inference or
 /// audio generation; it assigns a request ID, stores callbacks, and enqueues an
 /// outbound command for the client's writer thread.
+///
+/// Request submission and cancellation are synchronized internally. Lifecycle
+/// calls such as `start()` and external `stop()` should be serialized by the
+/// owner thread. `stop()` itself may also be called from request callbacks.
 class QwenTtsClient final {
 public:
     /// \brief Creates a stopped client.
