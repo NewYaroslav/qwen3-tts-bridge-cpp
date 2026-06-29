@@ -6,6 +6,8 @@
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
+#include <exception>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -26,6 +28,14 @@ struct QwenTtsClientOptions {
 
     /// \brief Maximum outbound control commands waiting for the writer thread.
     std::size_t max_outbound_commands = 4096u;
+
+    /// \brief Maximum dynamic payload bytes waiting in the outbound queue.
+    std::size_t max_outbound_command_bytes = 16u * 1024u * 1024u;
+
+    /// \brief Optional diagnostic hook for exceptions thrown by user callbacks.
+    ///
+    /// Exceptions thrown by this handler are ignored.
+    std::function<void(std::exception_ptr)> on_callback_exception;
 };
 
 /// \class QwenTtsClient
@@ -93,6 +103,7 @@ public:
     ///
     /// This method is idempotent. It may block while the worker stops and
     /// internal threads join. It is safe to call from request callbacks.
+    /// Destroying QwenTtsClient from one of its callbacks is not supported.
     void stop();
 
 private:
@@ -104,10 +115,15 @@ private:
     struct OutboundCommand {
         RequestId request_id = 0;
         ControlMessage message;
+        std::size_t queued_bytes = 0;
     };
 
     RequestId allocate_request_id_locked(RequestId requested_id);
     bool enqueue_outbound_locked(OutboundCommand command);
+    void clear_outbound_queue_locked();
+    std::size_t outbound_command_size(const OutboundCommand& command) const;
+    void reap_finished_threads();
+    bool is_current_dispatcher_thread() const;
     void writer_loop();
     void dispatcher_loop();
     void handle_event(WorkerSessionEvent event);
@@ -122,6 +138,8 @@ private:
     void cancel_request_locally(RequestId request_id);
     void fail_request(RequestId request_id, TtsError error);
     void fail_all_requests(TtsError error);
+    void invoke_user_callback(const std::function<void()>& callback) noexcept;
+    void report_callback_exception(std::exception_ptr exception) noexcept;
     void join_threads();
 
     mutable std::mutex mutex_;
@@ -130,11 +148,13 @@ private:
     QwenTtsClientOptions options_;
     std::unordered_map<RequestId, ActiveRequest> active_requests_;
     std::deque<OutboundCommand> outbound_queue_;
+    std::size_t queued_outbound_bytes_ = 0;
     std::thread writer_thread_;
     std::thread dispatcher_thread_;
     RequestId next_request_id_ = 1;
     bool running_ = false;
     bool stopping_ = false;
+    bool terminal_failure_handled_ = false;
 };
 
 } // namespace qwen_tts_bridge

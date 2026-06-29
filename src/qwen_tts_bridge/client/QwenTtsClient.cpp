@@ -1,12 +1,17 @@
 #include <qwen_tts_bridge/client/QwenTtsClient.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <exception>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace qwen_tts_bridge {
 namespace {
+
+constexpr std::size_t outbound_command_fixed_overhead = 64u;
 
 TtsError make_local_error(
     RequestId request_id,
@@ -42,13 +47,27 @@ QwenTtsClient::~QwenTtsClient() {
 bool QwenTtsClient::start(
     std::unique_ptr<ITransport> transport,
     QwenTtsClientOptions options) {
-    if (transport == nullptr || options.max_outbound_commands == 0) {
+    if (transport == nullptr ||
+        options.max_outbound_commands == 0 ||
+        options.max_outbound_command_bytes == 0) {
         return false;
     }
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (running_ || stopping_ || session_ != nullptr) {
+        if (running_ || stopping_) {
+            return false;
+        }
+    }
+    reap_finished_threads();
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (running_ ||
+            stopping_ ||
+            session_ != nullptr ||
+            writer_thread_.joinable() ||
+            dispatcher_thread_.joinable()) {
             return false;
         }
     }
@@ -66,10 +85,11 @@ bool QwenTtsClient::start(
         options_ = std::move(options);
         session_ = std::move(session);
         active_requests_.clear();
-        outbound_queue_.clear();
+        clear_outbound_queue_locked();
         next_request_id_ = 1;
         running_ = true;
         stopping_ = false;
+        terminal_failure_handled_ = false;
     }
 
     try {
@@ -106,6 +126,11 @@ RequestId QwenTtsClient::synthesize_async(
     }
 
     SynthesizeMessage message = to_control_message(request);
+    ControlMessage control_message{message};
+    if (!encode_control_message(control_message)) {
+        return 0;
+    }
+
     ActiveRequest active_request;
     active_request.callbacks = std::move(callbacks);
     active_request.audio_format = request.output;
@@ -124,7 +149,7 @@ RequestId QwenTtsClient::synthesize_async(
 
         OutboundCommand command;
         command.request_id = request_id;
-        command.message = ControlMessage{std::move(message)};
+        command.message = std::move(control_message);
 
         active_requests_.emplace(request_id, std::move(active_request));
         if (!enqueue_outbound_locked(std::move(command))) {
@@ -182,7 +207,7 @@ void QwenTtsClient::stop() {
         std::lock_guard<std::mutex> lock(mutex_);
         running_ = false;
         stopping_ = true;
-        outbound_queue_.clear();
+        clear_outbound_queue_locked();
         session = session_.get();
     }
     outbound_condition_.notify_all();
@@ -199,13 +224,15 @@ void QwenTtsClient::stop() {
         "client_stopped",
         "QwenTtsClient stopped before request reached a terminal event"));
 
-    const bool called_from_dispatcher =
-        dispatcher_thread_.joinable() &&
-        dispatcher_thread_.get_id() == std::this_thread::get_id();
-    if (!called_from_dispatcher) {
-        std::lock_guard<std::mutex> lock(mutex_);
+    const bool called_from_dispatcher = is_current_dispatcher_thread();
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!writer_thread_.joinable() &&
+        (!dispatcher_thread_.joinable() || called_from_dispatcher)) {
         session_.reset();
+        clear_outbound_queue_locked();
         stopping_ = false;
+        running_ = false;
+        terminal_failure_handled_ = false;
     }
 }
 
@@ -239,11 +266,73 @@ RequestId QwenTtsClient::allocate_request_id_locked(RequestId requested_id) {
 }
 
 bool QwenTtsClient::enqueue_outbound_locked(OutboundCommand command) {
+    const std::size_t command_bytes = outbound_command_size(command);
     if (outbound_queue_.size() >= options_.max_outbound_commands) {
         return false;
     }
+    if (command_bytes > options_.max_outbound_command_bytes ||
+        queued_outbound_bytes_ >
+            options_.max_outbound_command_bytes - command_bytes) {
+        return false;
+    }
+
+    command.queued_bytes = command_bytes;
+    queued_outbound_bytes_ += command_bytes;
     outbound_queue_.push_back(std::move(command));
     return true;
+}
+
+void QwenTtsClient::clear_outbound_queue_locked() {
+    outbound_queue_.clear();
+    queued_outbound_bytes_ = 0;
+}
+
+std::size_t QwenTtsClient::outbound_command_size(
+    const OutboundCommand& command) const {
+    return std::visit(
+        [](const auto& message) -> std::size_t {
+            using Message = std::decay_t<decltype(message)>;
+
+            if constexpr (std::is_same_v<Message, HelloMessage>) {
+                return outbound_command_fixed_overhead +
+                    message.client_name.size() +
+                    message.client_version.size();
+            }
+            else if constexpr (std::is_same_v<Message, SynthesizeMessage>) {
+                return outbound_command_fixed_overhead +
+                    message.text.size() +
+                    message.language.size() +
+                    message.speaker.size() +
+                    message.instruction.size() +
+                    message.output.sample_format.size();
+            }
+            else if constexpr (std::is_same_v<Message, ShutdownMessage>) {
+                return outbound_command_fixed_overhead + message.mode.size();
+            }
+            else {
+                return outbound_command_fixed_overhead;
+            }
+        },
+        command.message);
+}
+
+void QwenTtsClient::reap_finished_threads() {
+    join_threads();
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!running_ &&
+        !stopping_ &&
+        !writer_thread_.joinable() &&
+        !dispatcher_thread_.joinable()) {
+        session_.reset();
+        clear_outbound_queue_locked();
+        terminal_failure_handled_ = false;
+    }
+}
+
+bool QwenTtsClient::is_current_dispatcher_thread() const {
+    return dispatcher_thread_.joinable() &&
+        dispatcher_thread_.get_id() == std::this_thread::get_id();
 }
 
 void QwenTtsClient::writer_loop() {
@@ -265,6 +354,9 @@ void QwenTtsClient::writer_loop() {
             }
 
             command = std::move(outbound_queue_.front());
+            queued_outbound_bytes_ -= std::min(
+                queued_outbound_bytes_,
+                command.queued_bytes);
             outbound_queue_.pop_front();
             session = session_.get();
         }
@@ -273,12 +365,7 @@ void QwenTtsClient::writer_loop() {
             continue;
         }
 
-        if (!session->send_control(command.request_id, command.message)) {
-            WorkerSessionEvent event;
-            event.request_id = command.request_id;
-            event.message = "failed to send outbound control command";
-            handle_local_error(event, "transport_error", "send_failed");
-        }
+        session->send_control(command.request_id, command.message);
     }
 }
 
@@ -381,7 +468,9 @@ void QwenTtsClient::handle_audio_event(WorkerSessionEvent event) {
         chunk.request_id = event.request_id;
         chunk.format = std::move(format);
         chunk.bytes = std::move(event.audio);
-        callbacks.on_audio(chunk);
+        invoke_user_callback([&callbacks, &chunk]() {
+            callbacks.on_audio(chunk);
+        });
     }
 }
 
@@ -404,13 +493,23 @@ void QwenTtsClient::handle_local_error(
     const WorkerSessionEvent& event,
     const std::string& category,
     const std::string& code) {
+    WorkerSession* session = nullptr;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (terminal_failure_handled_) {
+            return;
+        }
+        terminal_failure_handled_ = true;
         running_ = false;
         stopping_ = true;
-        outbound_queue_.clear();
+        clear_outbound_queue_locked();
+        session = session_.get();
     }
     outbound_condition_.notify_all();
+
+    if (session != nullptr) {
+        session->stop();
+    }
 
     const std::string message = event.message.empty()
         ? code
@@ -436,7 +535,7 @@ void QwenTtsClient::complete_request(RequestId request_id) {
     }
 
     if (callbacks.on_completed) {
-        callbacks.on_completed();
+        invoke_user_callback(callbacks.on_completed);
     }
 }
 
@@ -453,7 +552,7 @@ void QwenTtsClient::cancel_request_locally(RequestId request_id) {
     }
 
     if (callbacks.on_cancelled) {
-        callbacks.on_cancelled();
+        invoke_user_callback(callbacks.on_cancelled);
     }
 }
 
@@ -470,7 +569,9 @@ void QwenTtsClient::fail_request(RequestId request_id, TtsError error) {
     }
 
     if (callbacks.on_error) {
-        callbacks.on_error(error);
+        invoke_user_callback([&callbacks, &error]() {
+            callbacks.on_error(error);
+        });
     }
 }
 
@@ -492,8 +593,43 @@ void QwenTtsClient::fail_all_requests(TtsError error) {
             if (request_error.request_id == 0) {
                 request_error.request_id = item.first;
             }
-            callback_set.on_error(request_error);
+            invoke_user_callback([&callback_set, &request_error]() {
+                callback_set.on_error(request_error);
+            });
         }
+    }
+}
+
+void QwenTtsClient::invoke_user_callback(
+    const std::function<void()>& callback) noexcept {
+    if (!callback) {
+        return;
+    }
+
+    try {
+        callback();
+    }
+    catch (...) {
+        report_callback_exception(std::current_exception());
+    }
+}
+
+void QwenTtsClient::report_callback_exception(
+    std::exception_ptr exception) noexcept {
+    std::function<void(std::exception_ptr)> handler;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        handler = options_.on_callback_exception;
+    }
+
+    if (!handler) {
+        return;
+    }
+
+    try {
+        handler(std::move(exception));
+    }
+    catch (...) {
     }
 }
 
