@@ -629,6 +629,13 @@ larger abstraction on top of it:
   compatibility. The codec should require them to be present and non-empty, but
   should not enforce a closed list until the project deliberately chooses a
   stricter interoperability policy.
+- `src/qwen_tts_bridge/protocol/control/ControlCodec.cpp` may remain a single
+  implementation file while the control layer is small. When it grows further,
+  split it by responsibility into files such as `ControlDecode.cpp`,
+  `ControlEncode.cpp`, `ControlValidation.cpp`, and optionally
+  `ControlMessages.cpp`. Keep JSON helper functions private to
+  `protocol/control`; do not create a generic `utils` or `helpers` dumping
+  ground unless there is real reuse across this subdomain.
 
 ## Request Lifecycle
 
