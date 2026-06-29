@@ -446,6 +446,9 @@ properties:
 - receive callbacks are internal callbacks, not user synthesis callbacks;
 - send results distinguish accepted bytes, temporary backpressure, closed
   transports, and local send failures;
+- until `WorkerSession` gets an outbound queue, retry policy, and writable
+  notifications, it must treat every non-`Accepted` send result, including
+  `WouldBlock`, as a terminal session transport failure;
 - transport errors are reported separately from worker/model errors;
 - read boundaries are arbitrary and must not be treated as protocol frames;
 - `stop()` is deterministic and safe to call more than once;

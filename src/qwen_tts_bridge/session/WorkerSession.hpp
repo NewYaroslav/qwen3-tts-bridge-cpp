@@ -86,6 +86,10 @@ struct WorkerSessionEvent {
 /// WorkerSession is an internal orchestration layer for the future public
 /// client. It does not invoke user synthesis callbacks directly. Instead, it
 /// exposes a bounded event queue that a higher-level dispatcher can consume.
+///
+/// The current implementation has no outbound retry queue or writable-event
+/// integration. Every non-`Accepted` transport send result, including
+/// `WouldBlock`, is therefore treated as a terminal session transport failure.
 class WorkerSession final {
 public:
     /// \brief Creates a session around an already configured transport.
@@ -114,6 +118,9 @@ public:
     /// \param request_id Frame request identifier.
     /// \param message Client-to-worker control message.
     /// \return True when the encoded frame was accepted by the transport.
+    ///
+    /// A non-`Accepted` send result records a local transport error and moves
+    /// the session to `WorkerSessionState::Failed`.
     bool send_control(RequestId request_id, const ControlMessage& message);
 
     /// \brief Waits for the next queued session event.
