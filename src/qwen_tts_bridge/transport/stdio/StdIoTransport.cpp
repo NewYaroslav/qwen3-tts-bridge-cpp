@@ -359,6 +359,9 @@ private:
     }
 
     void watch_process_exit(std::shared_ptr<TinyProcessLib::Process> process) {
+        // Tiny-process get_exit_status() closes pipes and joins stdout/stderr
+        // reader threads before returning. Queue Exit only after that, so all
+        // Receive/Stderr events produced by those readers are already queued.
         const int status = process->get_exit_status();
 
         {

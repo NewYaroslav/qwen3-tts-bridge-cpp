@@ -68,6 +68,7 @@ public:
     void on_bytes(ITransport::Bytes bytes) {
         std::lock_guard<std::mutex> lock(mutex_);
         bytes_.append(string_from_bytes(bytes));
+        event_order_.push_back('R');
         condition_.notify_all();
     }
 
@@ -81,6 +82,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         exited_ = true;
         exit_status_ = status;
+        event_order_.push_back('E');
         condition_.notify_all();
     }
 
@@ -125,12 +127,32 @@ public:
         return !errors_.empty();
     }
 
+    bool contains_text(const std::string& expected_text) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return bytes_.find(expected_text) != std::string::npos;
+    }
+
+    bool has_receive_after_exit() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        bool saw_exit = false;
+        for (const char event : event_order_) {
+            if (event == 'E') {
+                saw_exit = true;
+            }
+            else if (event == 'R' && saw_exit) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 private:
     mutable std::mutex mutex_;
     std::condition_variable condition_;
     std::string bytes_;
     std::string stderr_;
     std::vector<std::string> errors_;
+    std::vector<char> event_order_;
     bool exited_ = false;
     int exit_status_ = -1;
 };
@@ -512,6 +534,36 @@ void test_stop_can_kill_worker_while_send_is_blocked() {
     CHECK(!transport.is_running());
 }
 
+void test_stdout_is_delivered_before_exit_callback() {
+    RawCollector collector;
+    StdIoTransportOptions options = make_python_options(
+        "import sys\n"
+        "for index in range(1000):\n"
+        "    sys.stdout.buffer.write((f'marker-{index:04d}\\n').encode('ascii'))\n"
+        "sys.stdout.flush()\n");
+    options.read_buffer_size = 64;
+
+    StdIoTransport transport(options);
+    CHECK(transport.start(
+        [&](ITransport::Bytes bytes) {
+            collector.on_bytes(std::move(bytes));
+        },
+        [&](std::string message) {
+            collector.on_error(std::move(message));
+        },
+        [&](int status) {
+            collector.on_exit(status);
+        }));
+
+    CHECK(collector.wait_for_exit() == 0);
+    transport.stop();
+
+    CHECK(collector.contains_text("marker-0000"));
+    CHECK(collector.contains_text("marker-0999"));
+    CHECK(!collector.has_receive_after_exit());
+    CHECK(!collector.has_errors());
+}
+
 void test_unicode_working_directory_and_argument() {
 #if defined(_WIN32)
     namespace fs = std::filesystem;
@@ -562,6 +614,7 @@ int main() {
     test_stop_forces_kill_after_timeout();
     test_stop_from_receive_callback();
     test_stop_can_kill_worker_while_send_is_blocked();
+    test_stdout_is_delivered_before_exit_callback();
     test_unicode_working_directory_and_argument();
     return 0;
 }
