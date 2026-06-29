@@ -19,6 +19,8 @@ set(QWEN_TTS_BRIDGE_EXTERNAL_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/cpp")
 set(QWEN_TTS_BRIDGE_EXTERNAL_PYTHON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/python")
 
 add_subdirectory("${QWEN_TTS_BRIDGE_EXTERNAL_CPP_DIR}/tiny-process-library" EXCLUDE_FROM_ALL)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+add_subdirectory("${QWEN_TTS_BRIDGE_EXTERNAL_CPP_DIR}/nlohmann-json" EXCLUDE_FROM_ALL)
 
 if(WIN32)
     target_compile_definitions(tiny-process-library
@@ -29,6 +31,7 @@ if(WIN32)
 endif()
 
 add_library(qwen_tts_bridge
+    src/qwen_tts_bridge/protocol/control/ControlCodec.cpp
     src/qwen_tts_bridge/protocol/framing/FrameCodec.cpp
     src/qwen_tts_bridge/protocol/framing/FrameParser.cpp
     src/qwen_tts_bridge/transport/stdio/StdIoTransport.cpp
@@ -44,6 +47,7 @@ target_include_directories(qwen_tts_bridge
 
 target_link_libraries(qwen_tts_bridge
     PRIVATE
+        nlohmann_json::nlohmann_json
         tiny-process-library::tiny-process-library
 )
 
@@ -60,6 +64,17 @@ if(QWEN_TTS_BRIDGE_BUILD_TESTS)
     )
 
     add_test(NAME protocol_frame_test COMMAND protocol_frame_test)
+
+    add_executable(control_codec_test
+        tests/control_codec_test.cpp
+    )
+
+    target_link_libraries(control_codec_test
+        PRIVATE
+            QwenTTSBridge::qwen_tts_bridge
+    )
+
+    add_test(NAME control_codec_test COMMAND control_codec_test)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
 
