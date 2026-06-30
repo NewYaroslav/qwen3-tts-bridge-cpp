@@ -14,6 +14,16 @@ class MockEngineConfig:
     chunk_duration_ms: int = 100
     chunk_delay_seconds: float = 0.0
 
+    def validate(self) -> None:
+        """Validate mock-engine settings."""
+
+        if self.chunk_count <= 0:
+            raise ValueError("mock.chunk_count must be greater than zero")
+        if self.chunk_duration_ms <= 0:
+            raise ValueError("mock.chunk_duration_ms must be greater than zero")
+        if not math.isfinite(self.chunk_delay_seconds) or self.chunk_delay_seconds < 0.0:
+            raise ValueError("mock.chunk_delay_seconds must be finite and non-negative")
+
 
 @dataclass(frozen=True)
 class QwenEngineConfig:
@@ -22,6 +32,14 @@ class QwenEngineConfig:
     model_path: str = ""
     device: str = "cuda"
     dtype: str = "auto"
+
+    def validate(self) -> None:
+        """Validate settings shared by the future Qwen engine adapter."""
+
+        if not self.device:
+            raise ValueError("qwen.device must not be empty")
+        if not self.dtype:
+            raise ValueError("qwen.dtype must not be empty")
 
 
 @dataclass(frozen=True)
@@ -35,20 +53,15 @@ class WorkerConfig:
     qwen: QwenEngineConfig = field(default_factory=QwenEngineConfig)
 
     def validate(self) -> None:
-        """Validate configuration values that are independent of the engine."""
+        """Validate configuration values."""
 
         if not self.worker_version:
             raise ValueError("worker_version must not be empty")
         if self.output_queue_size <= 0:
             raise ValueError("output_queue_size must be greater than zero")
-        if self.engine not in {"mock", "qwen"}:
+        if self.engine == "mock":
+            self.mock.validate()
+        elif self.engine == "qwen":
+            self.qwen.validate()
+        else:
             raise ValueError(f"unsupported engine: {self.engine}")
-        if self.mock.chunk_count <= 0:
-            raise ValueError("mock.chunk_count must be greater than zero")
-        if self.mock.chunk_duration_ms <= 0:
-            raise ValueError("mock.chunk_duration_ms must be greater than zero")
-        if (
-            not math.isfinite(self.mock.chunk_delay_seconds)
-            or self.mock.chunk_delay_seconds < 0.0
-        ):
-            raise ValueError("mock.chunk_delay_seconds must be finite and non-negative")

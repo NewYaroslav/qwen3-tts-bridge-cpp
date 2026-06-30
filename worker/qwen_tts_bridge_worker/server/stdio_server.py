@@ -100,19 +100,27 @@ class StdioWorkerServer:
         """Run the server until shutdown, EOF, or a fatal framing error."""
 
         self._writer.start()
+        engine_thread_started = False
         try:
             self._engine.load()
             self._engine.warmup()
             self._engine_thread.start()
+            engine_thread_started = True
             self._read_loop()
         except Exception:
             self._fatal_error = True
             traceback.print_exc(file=self._error)
         finally:
             self._request_shutdown(send_ack=False)
-            self._engine_thread.join()
-            self._engine.close()
-            self._writer.stop_when_drained()
+            if engine_thread_started:
+                self._engine_thread.join()
+            try:
+                self._engine.close()
+            except Exception:
+                self._fatal_error = True
+                traceback.print_exc(file=self._error)
+            finally:
+                self._writer.stop_when_drained()
 
         return 1 if self._fatal_error else 0
 

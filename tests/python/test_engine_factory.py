@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT_DIR / "worker"))
 
 from qwen_tts_bridge_worker.config import (  # noqa: E402
     MockEngineConfig,
+    QwenEngineConfig,
     WorkerConfig,
 )
 from qwen_tts_bridge_worker.engine import (  # noqa: E402
@@ -62,6 +63,24 @@ class EngineFactoryTests(unittest.TestCase):
     def test_qwen_engine_is_explicitly_unavailable(self) -> None:
         with self.assertRaisesRegex(EngineFactoryError, "not implemented"):
             create_engine(WorkerConfig(engine="qwen"))
+
+    def test_qwen_config_does_not_validate_unused_mock_config(self) -> None:
+        with self.assertRaisesRegex(EngineFactoryError, "not implemented"):
+            create_engine(
+                WorkerConfig(
+                    engine="qwen",
+                    mock=MockEngineConfig(chunk_count=0),
+                )
+            )
+
+    def test_qwen_config_rejects_empty_device_and_dtype(self) -> None:
+        for qwen_config in (
+            QwenEngineConfig(device=""),
+            QwenEngineConfig(dtype=""),
+        ):
+            with self.subTest(qwen_config=qwen_config):
+                with self.assertRaises(ValueError):
+                    create_engine(WorkerConfig(engine="qwen", qwen=qwen_config))
 
     def test_reject_invalid_mock_delay(self) -> None:
         for value in (-1.0, math.inf, math.nan):
