@@ -956,6 +956,9 @@ when `-UseVenv` is passed so Nuitka does not pollute the development `.venv`.
 After a real package build, run `test-packaged-worker.ps1` against the mock
 backend before changing release layout. Full PyTorch, CUDA, Qwen runtime
 validation, and transitive packaging locks belong in later packaging tests.
+The GitHub Actions workflow `Packaged Worker Smoke` is manual
+(`workflow_dispatch`) by design; do not move real Nuitka compilation into every
+PR check unless the build cost becomes acceptable.
 
 Generated release layout should resemble:
 
