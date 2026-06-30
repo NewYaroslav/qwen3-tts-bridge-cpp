@@ -328,6 +328,16 @@ The setup script installs `worker/requirements-dev.lock.txt` and the worker
 package in editable mode. The check script runs Ruff, Pyright, and Python
 unittests with `worker/src` available on `PYTHONPATH`.
 
+To keep the tools isolated in a local virtual environment, use:
+
+```text
+.\scripts\setup-python-dev.ps1 -UseVenv
+.\scripts\check-python.ps1 -UseVenv
+```
+
+CI runs the same scripts with the Python executable provided by
+`actions/setup-python`.
+
 ## Dependencies
 
 All source dependencies are managed as git submodules and pinned to exact

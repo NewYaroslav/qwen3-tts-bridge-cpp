@@ -251,6 +251,14 @@ scripts/setup-python-dev.ps1
 scripts/check-python.ps1
 ```
 
+For isolated local setup, pass `-UseVenv` to both scripts. In GitHub Actions,
+prefer the Python executable from `actions/setup-python`:
+
+```text
+scripts/setup-python-dev.ps1 -Python python
+scripts/check-python.ps1 -Python python
+```
+
 Do not store an installed Python runtime in `external/python/`. The packaged
 runtime belongs to generated `dist/` output produced by Nuitka.
 
