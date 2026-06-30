@@ -13,9 +13,9 @@ from typing import Any, BinaryIO, Deque, Optional, TextIO, cast
 from qwen_tts_bridge_worker.engine import (
     AudioFormat,
     EngineCapabilities,
+    EngineRequestValidationError,
     SynthesisRequest,
     TtsEngine,
-    UnsupportedAudioFormatError,
 )
 from qwen_tts_bridge_worker.protocol.control import (
     ControlMessageError,
@@ -374,11 +374,11 @@ class StdioWorkerServer:
         )
         try:
             self._engine.validate_request(request)
-        except UnsupportedAudioFormatError as exc:
+        except EngineRequestValidationError as exc:
             self._send_error(
                 request_id,
                 "request_error",
-                "unsupported_audio_format",
+                exc.code,
                 str(exc),
             )
             return None

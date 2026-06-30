@@ -3,9 +3,11 @@
 from qwen_tts_bridge_worker.engine.base import TtsEngine
 from qwen_tts_bridge_worker.engine.factory import EngineFactoryError, create_engine
 from qwen_tts_bridge_worker.engine.mock_engine import MockTtsEngine
+from qwen_tts_bridge_worker.engine.qwen_engine import QwenEngineError, QwenTtsEngine
 from qwen_tts_bridge_worker.engine.types import (
     AudioFormat,
     EngineCapabilities,
+    EngineRequestValidationError,
     SynthesisRequest,
     UnsupportedAudioFormatError,
 )
@@ -13,8 +15,11 @@ from qwen_tts_bridge_worker.engine.types import (
 __all__ = [
     "AudioFormat",
     "EngineCapabilities",
+    "EngineRequestValidationError",
     "EngineFactoryError",
     "MockTtsEngine",
+    "QwenEngineError",
+    "QwenTtsEngine",
     "SynthesisRequest",
     "TtsEngine",
     "UnsupportedAudioFormatError",

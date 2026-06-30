@@ -52,8 +52,19 @@ class AudioFormat:
         )
 
 
-class UnsupportedAudioFormatError(ValueError):
+class EngineRequestValidationError(ValueError):
+    """Raised when an engine rejects a client synthesis request."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class UnsupportedAudioFormatError(EngineRequestValidationError):
     """Raised when an engine cannot produce a requested audio format."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("unsupported_audio_format", message)
 
 
 @dataclass(frozen=True, slots=True)

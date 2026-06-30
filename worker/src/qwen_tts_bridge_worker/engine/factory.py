@@ -9,6 +9,7 @@ from qwen_tts_bridge_worker.config import (
 )
 from qwen_tts_bridge_worker.engine.base import TtsEngine
 from qwen_tts_bridge_worker.engine.mock_engine import MockTtsEngine
+from qwen_tts_bridge_worker.engine.qwen_engine import QwenTtsEngine
 
 
 class EngineFactoryError(RuntimeError):
@@ -26,6 +27,6 @@ def create_engine(config: EngineConfig) -> TtsEngine:
         )
 
     if isinstance(config, QwenEngineConfig):
-        raise EngineFactoryError("qwen engine integration is not implemented yet")
+        return QwenTtsEngine(config)
 
     raise EngineFactoryError(f"unsupported engine config: {type(config).__name__}")
