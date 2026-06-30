@@ -283,7 +283,7 @@ def _validate_custom_voice_request(
 
 
 def _is_placeholder_speaker(speaker: str) -> bool:
-    return not speaker.strip() or speaker.strip().lower() == "default"
+    return not speaker.strip()
 
 
 def _supported_speakers(model: Any) -> set[str] | None:
