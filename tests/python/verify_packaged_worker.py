@@ -38,9 +38,15 @@ class PackagedWorkerHarness:
         )
         self._frames: queue.Queue[Frame] = queue.Queue()
         self._reader_errors: queue.Queue[str] = queue.Queue()
-        self._stderr_data: bytes | None = None
+        self._stderr_chunks: list[bytes] = []
+        self._stderr_lock = threading.Lock()
         self._reader = threading.Thread(target=self._read_stdout, daemon=True)
+        self._stderr_reader = threading.Thread(
+            target=self._read_stderr,
+            daemon=True,
+        )
         self._reader.start()
+        self._stderr_reader.start()
 
     def send_control(self, request_id: int, message: dict[str, object]) -> None:
         """Send one control JSON frame."""
@@ -69,7 +75,7 @@ class PackagedWorkerHarness:
             except queue.Empty as exc:
                 self._raise_reader_error_if_any()
                 if self._process.poll() is not None:
-                    self._capture_stderr()
+                    self._join_reader_threads()
                     stderr = self.stderr_text()
                     raise RuntimeError(
                         "packaged worker exited before expected frame"
@@ -94,8 +100,7 @@ class PackagedWorkerHarness:
                 "packaged worker did not exit before timeout"
             ) from exc
         finally:
-            self._reader.join(timeout=1.0)
-            self._capture_stderr()
+            self._join_reader_threads()
             self._close_pipes()
 
         return exit_code
@@ -113,21 +118,17 @@ class PackagedWorkerHarness:
             except subprocess.TimeoutExpired:
                 self._process.terminate()
                 self._process.wait(timeout=self._timeout_seconds)
-        self._reader.join(timeout=1.0)
-        self._capture_stderr()
+        self._join_reader_threads()
         self._close_pipes()
 
     def stderr_text(self) -> str:
         """Return captured stderr as UTF-8 text."""
 
-        if self._stderr_data is not None:
-            return self._stderr_data.decode("utf-8", errors="replace")
-        if self._process.stderr is None:
-            return ""
-        try:
-            return self._process.stderr.read().decode("utf-8", errors="replace")
-        except ValueError:
-            return ""
+        with self._stderr_lock:
+            return b"".join(self._stderr_chunks).decode(
+                "utf-8",
+                errors="replace",
+            )
 
     def _read_stdout(self) -> None:
         if self._process.stdout is None:
@@ -150,13 +151,23 @@ class PackagedWorkerHarness:
                 if result.frame is not None:
                     self._frames.put(result.frame)
 
-    def _capture_stderr(self) -> None:
-        if self._stderr_data is not None or self._process.stderr is None:
+    def _read_stderr(self) -> None:
+        if self._process.stderr is None:
             return
-        try:
-            self._stderr_data = self._process.stderr.read()
-        except ValueError:
-            self._stderr_data = b""
+
+        while True:
+            try:
+                chunk = self._process.stderr.read(4096)
+            except ValueError:
+                return
+            if not chunk:
+                return
+            with self._stderr_lock:
+                self._stderr_chunks.append(chunk)
+
+    def _join_reader_threads(self) -> None:
+        self._reader.join(timeout=1.0)
+        self._stderr_reader.join(timeout=1.0)
 
     def _close_pipes(self) -> None:
         for pipe in (
