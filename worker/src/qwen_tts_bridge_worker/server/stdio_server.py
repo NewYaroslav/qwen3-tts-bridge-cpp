@@ -7,7 +7,7 @@ import threading
 import traceback
 import uuid
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, BinaryIO, Deque, Optional, TextIO, cast
 
 from qwen_tts_bridge_worker.engine import (
@@ -25,6 +25,11 @@ from qwen_tts_bridge_worker.protocol.control import (
 )
 from qwen_tts_bridge_worker.protocol.data import Frame, FrameType, ParseStatus
 from qwen_tts_bridge_worker.protocol.framing import FrameParser, encode_frame
+from qwen_tts_bridge_worker.server.metrics import (
+    MetricsWriter,
+    elapsed_milliseconds,
+    monotonic_seconds,
+)
 
 
 @dataclass
@@ -32,6 +37,11 @@ class _RequestSlot:
     request: SynthesisRequest
     cancel_event: threading.Event
     state: str = "queued"
+    queued_at: float = field(default_factory=monotonic_seconds)
+    started_at: float | None = None
+    first_audio_at: float | None = None
+    audio_chunks: int = 0
+    audio_bytes: int = 0
 
 
 class _OutputWriter:
@@ -79,6 +89,7 @@ class StdioWorkerServer:
         self._engine = engine
         self._worker_version = worker_version
         self._read_chunk_size = read_chunk_size
+        self._metrics = MetricsWriter(error_stream)
 
         self._writer = _OutputWriter(output_stream, output_queue_size)
         self._parser = FrameParser()
@@ -107,12 +118,30 @@ class StdioWorkerServer:
 
         self._writer.start()
         engine_thread_started = False
+        started_at = monotonic_seconds()
         try:
+            load_started_at = monotonic_seconds()
             self._engine.load()
+            self._metrics.emit(
+                "engine_loaded",
+                duration_ms=elapsed_milliseconds(load_started_at),
+            )
+
+            warmup_started_at = monotonic_seconds()
             self._engine.warmup()
             self._warmed_up = True
+            self._metrics.emit(
+                "engine_warmed_up",
+                duration_ms=elapsed_milliseconds(warmup_started_at),
+            )
+
             self._engine_thread.start()
             engine_thread_started = True
+            self._metrics.emit(
+                "worker_runtime_started",
+                startup_ms=elapsed_milliseconds(started_at),
+                warmed_up=self._warmed_up,
+            )
             self._read_loop()
         except Exception:
             self._fatal_error = True
@@ -219,6 +248,15 @@ class StdioWorkerServer:
 
         self._hello_seen = True
         self._ready_sent = True
+        capabilities = self._engine.capabilities
+        self._metrics.emit(
+            "worker_ready_sent",
+            warmed_up=self._warmed_up,
+            streaming=capabilities.streaming,
+            cancellation=capabilities.cancellation,
+            instructions=capabilities.instructions,
+            voice_clone=capabilities.voice_clone,
+        )
         self._writer.send(
             control_frame(
                 0,
@@ -228,7 +266,7 @@ class StdioWorkerServer:
                     "session_id": self._session_id,
                     "warmed_up": self._warmed_up,
                     "capabilities": _capabilities_payload(
-                        self._engine.capabilities,
+                        capabilities,
                     ),
                 },
             )
@@ -301,6 +339,11 @@ class StdioWorkerServer:
                     "position": position,
                 },
             )
+        )
+        self._metrics.emit(
+            "request_queued",
+            request_id=request_id,
+            position=position,
         )
 
         with self._condition:
@@ -397,6 +440,7 @@ class StdioWorkerServer:
 
         send_cancelled = False
         unknown = False
+        cancelled_slot: _RequestSlot | None = None
 
         with self._condition:
             slot = self._active.get(request_id)
@@ -411,6 +455,7 @@ class StdioWorkerServer:
                 else:
                     self._terminalize_locked(request_id)
                     send_cancelled = True
+                    cancelled_slot = slot
             elif slot.state == "running":
                 slot.cancel_event.set()
 
@@ -424,6 +469,8 @@ class StdioWorkerServer:
                 "request_id is not active",
             )
         elif send_cancelled:
+            if cancelled_slot is not None:
+                self._emit_request_finished(cancelled_slot, "cancelled")
             self._writer.send(control_frame(request_id, {"message_type": "cancelled"}))
 
     def _handle_shutdown(self, request_id: int, message: dict[str, Any]) -> bool:
@@ -450,7 +497,7 @@ class StdioWorkerServer:
         return False
 
     def _request_shutdown(self, send_ack: bool) -> None:
-        queued_cancelled_ids: list[int] = []
+        queued_cancelled_slots: list[_RequestSlot] = []
 
         with self._condition:
             if self._shutdown_requested:
@@ -469,13 +516,16 @@ class StdioWorkerServer:
                     continue
                 slot.cancel_event.set()
                 self._terminalize_locked(request_id)
-                queued_cancelled_ids.append(request_id)
+                queued_cancelled_slots.append(slot)
 
             for slot in self._active.values():
                 slot.cancel_event.set()
 
-        for request_id in queued_cancelled_ids:
-            self._writer.send(control_frame(request_id, {"message_type": "cancelled"}))
+        for slot in queued_cancelled_slots:
+            self._emit_request_finished(slot, "cancelled")
+            self._writer.send(
+                control_frame(slot.request.request_id, {"message_type": "cancelled"})
+            )
 
         with self._condition:
             self._shutdown_terminal_events_enqueued = True
@@ -509,8 +559,15 @@ class StdioWorkerServer:
         request_id = slot.request.request_id
 
         if slot.cancel_event.is_set():
-            self._finish_cancelled(request_id)
+            self._finish_cancelled(slot)
             return
+
+        slot.started_at = monotonic_seconds()
+        self._metrics.emit(
+            "request_started",
+            request_id=request_id,
+            queue_ms=elapsed_milliseconds(slot.queued_at, slot.started_at),
+        )
 
         self._writer.send(
             control_frame(
@@ -531,12 +588,29 @@ class StdioWorkerServer:
                     break
                 if not pcm_chunk:
                     continue
+                chunk_time = monotonic_seconds()
+                if slot.first_audio_at is None:
+                    slot.first_audio_at = chunk_time
+                    started_at = slot.started_at
+                    if started_at is None:
+                        started_at = chunk_time
+                    self._metrics.emit(
+                        "request_first_audio",
+                        request_id=request_id,
+                        first_audio_ms=elapsed_milliseconds(
+                            started_at,
+                            chunk_time,
+                        ),
+                    )
+                slot.audio_chunks += 1
+                slot.audio_bytes += len(pcm_chunk)
                 self._writer.send(
                     encode_frame(FrameType.AUDIO_PCM, request_id, pcm_chunk)
                 )
         except Exception as exc:
             with self._condition:
                 self._terminalize_locked(request_id)
+            self._emit_request_finished(slot, "failed")
             self._send_error(
                 request_id,
                 "model_error",
@@ -546,16 +620,60 @@ class StdioWorkerServer:
             return
 
         if slot.cancel_event.is_set():
-            self._finish_cancelled(request_id)
+            self._finish_cancelled(slot)
         else:
             with self._condition:
                 self._terminalize_locked(request_id)
+            self._emit_request_finished(slot, "completed")
             self._writer.send(control_frame(request_id, {"message_type": "completed"}))
 
-    def _finish_cancelled(self, request_id: int) -> None:
+    def _finish_cancelled(self, slot: _RequestSlot) -> None:
+        request_id = slot.request.request_id
         with self._condition:
             self._terminalize_locked(request_id)
+        self._emit_request_finished(slot, "cancelled")
         self._writer.send(control_frame(request_id, {"message_type": "cancelled"}))
+
+    def _emit_request_finished(
+        self,
+        slot: _RequestSlot,
+        terminal_state: str,
+    ) -> None:
+        ended_at = monotonic_seconds()
+        fields: dict[str, object] = {
+            "request_id": slot.request.request_id,
+            "terminal_state": terminal_state,
+            "total_ms": elapsed_milliseconds(slot.queued_at, ended_at),
+            "audio_chunks": slot.audio_chunks,
+            "audio_bytes": slot.audio_bytes,
+        }
+
+        if slot.started_at is not None:
+            fields["queue_ms"] = elapsed_milliseconds(
+                slot.queued_at,
+                slot.started_at,
+            )
+            fields["synthesis_ms"] = elapsed_milliseconds(
+                slot.started_at,
+                ended_at,
+            )
+        if slot.first_audio_at is not None and slot.started_at is not None:
+            fields["first_audio_ms"] = elapsed_milliseconds(
+                slot.started_at,
+                slot.first_audio_at,
+            )
+
+        audio_duration_ms = _pcm_duration_ms(slot.request.output, slot.audio_bytes)
+        if audio_duration_ms is not None:
+            fields["audio_duration_ms"] = audio_duration_ms
+            synthesis_ms = fields.get("synthesis_ms")
+            if isinstance(synthesis_ms, float) and audio_duration_ms > 0.0:
+                fields["real_time_factor"] = round(
+                    synthesis_ms / audio_duration_ms,
+                    6,
+                )
+
+        self._metrics.emit("request_finished", **fields)
 
     def _terminalize_locked(self, request_id: int) -> None:
         self._active.pop(request_id, None)
@@ -578,3 +696,19 @@ def _capabilities_payload(capabilities: EngineCapabilities) -> dict[str, bool]:
         "instructions": capabilities.instructions,
         "voice_clone": capabilities.voice_clone,
     }
+
+
+def _pcm_duration_ms(format: AudioFormat, audio_bytes: int) -> float | None:
+    bytes_per_sample = _bytes_per_sample(format.sample_format)
+    if bytes_per_sample is None:
+        return None
+    bytes_per_second = format.sample_rate * format.channels * bytes_per_sample
+    if bytes_per_second <= 0:
+        return None
+    return round(audio_bytes * 1000.0 / bytes_per_second, 3)
+
+
+def _bytes_per_sample(sample_format: str) -> int | None:
+    if sample_format == "s16le":
+        return 2
+    return None
