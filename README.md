@@ -197,6 +197,19 @@ stderr  worker logs only
 Worker logs must never be written to stdout because stdout is reserved for
 protocol frames and binary PCM data.
 
+The worker may also write structured diagnostics to stderr. Metric lines use
+the `qtb_metric ` prefix followed by compact JSON, for example:
+
+```text
+qtb_metric {"duration_ms":4821.37,"event":"engine_loaded"}
+```
+
+These metrics are not protocol frames and must never appear on stdout. Current
+events cover model load, warmup, ready delivery, request queueing, request
+start, first PCM chunk, and terminal request state. Request metrics include
+durations, chunk and byte counts, and real-time factor when the PCM format is
+known.
+
 Recommended runtime flow:
 
 ```text

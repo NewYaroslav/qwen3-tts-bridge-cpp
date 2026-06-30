@@ -52,6 +52,7 @@ class WorkerHarness:
         )
         self._frames: queue.Queue[Frame] = queue.Queue()
         self._reader_error: queue.Queue[str] = queue.Queue()
+        self._stderr_data: bytes | None = None
         self._reader = threading.Thread(target=self._read_stdout, daemon=True)
         self._reader.start()
 
@@ -79,6 +80,7 @@ class WorkerHarness:
     def wait(self, timeout: float = 3.0) -> int:
         exit_code = self.process.wait(timeout=timeout)
         self._reader.join(timeout=1.0)
+        self._capture_stderr()
         self._close_pipes()
         return exit_code
 
@@ -94,9 +96,12 @@ class WorkerHarness:
                 self.process.terminate()
                 self.process.wait(timeout=3.0)
         self._reader.join(timeout=1.0)
+        self._capture_stderr()
         self._close_pipes()
 
     def stderr_text(self) -> str:
+        if self._stderr_data is not None:
+            return self._stderr_data.decode("utf-8", errors="replace")
         if self.process.stderr is None:
             return ""
         try:
@@ -122,6 +127,14 @@ class WorkerHarness:
                 if result.frame is not None:
                     self._frames.put(result.frame)
 
+    def _capture_stderr(self) -> None:
+        if self._stderr_data is not None or self.process.stderr is None:
+            return
+        try:
+            self._stderr_data = self.process.stderr.read()
+        except ValueError:
+            self._stderr_data = b""
+
     def _close_pipes(self) -> None:
         for pipe in (self.process.stdin, self.process.stdout, self.process.stderr):
             if pipe is None:
@@ -146,6 +159,18 @@ def is_control_message(
     if request_id is not None and frame.header.request_id != request_id:
         return False
     return control_payload(frame).get("message_type") == message_type
+
+
+def metric_payloads(stderr_text: str) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    for line in stderr_text.splitlines():
+        if not line.startswith("qtb_metric "):
+            continue
+        payload = json.loads(line.removeprefix("qtb_metric "))
+        if not isinstance(payload, dict):
+            raise AssertionError(f"metric payload is not an object: {payload!r}")
+        payloads.append(payload)
+    return payloads
 
 
 class MockWorkerTests(unittest.TestCase):
@@ -257,6 +282,61 @@ class MockWorkerTests(unittest.TestCase):
 
         self.assertEqual("completed", control_payload(completed)["message_type"])
         self.assertEqual(1, completed.header.request_id)
+
+    def test_worker_writes_runtime_metrics_to_stderr(self) -> None:
+        worker = WorkerHarness(["--mock-chunks", "1"])
+        self.addCleanup(worker.close)
+        self._hello(worker)
+
+        worker.send_control(
+            1,
+            {
+                "message_type": "synthesize",
+                "text": "Collect metrics.",
+            },
+        )
+
+        worker.read_frame(lambda frame: is_control_message(frame, "queued", 1))
+        worker.read_frame(lambda frame: is_control_message(frame, "started", 1))
+        worker.read_frame(lambda frame: frame.header.frame_type == FrameType.AUDIO_PCM)
+        worker.read_frame(lambda frame: is_control_message(frame, "completed", 1))
+
+        worker.send_control(0, {"message_type": "shutdown", "mode": "cancel"})
+        worker.read_frame(lambda frame: is_control_message(frame, "shutdown_ack", 0))
+        self.assertEqual(0, worker.wait())
+
+        metrics = metric_payloads(worker.stderr_text())
+        event_names = {str(metric.get("event")) for metric in metrics}
+
+        self.assertIn("engine_loaded", event_names)
+        self.assertIn("engine_warmed_up", event_names)
+        self.assertIn("worker_ready_sent", event_names)
+        self.assertIn("request_queued", event_names)
+        self.assertIn("request_started", event_names)
+        self.assertIn("request_first_audio", event_names)
+        self.assertIn("request_finished", event_names)
+
+        finished = next(
+            metric
+            for metric in metrics
+            if metric.get("event") == "request_finished"
+            and metric.get("request_id") == 1
+        )
+
+        self.assertEqual("completed", finished["terminal_state"])
+        self.assertEqual(1, finished["audio_chunks"])
+        audio_bytes = finished["audio_bytes"]
+        total_ms = finished["total_ms"]
+        audio_duration_ms = finished["audio_duration_ms"]
+        real_time_factor = finished["real_time_factor"]
+        assert isinstance(audio_bytes, int)
+        assert isinstance(total_ms, int | float)
+        assert isinstance(audio_duration_ms, int | float)
+        assert isinstance(real_time_factor, int | float)
+        self.assertGreater(audio_bytes, 0)
+        self.assertGreaterEqual(total_ms, 0)
+        self.assertGreater(audio_duration_ms, 0)
+        self.assertGreaterEqual(real_time_factor, 0)
 
     def test_unsupported_audio_format_is_protocol_request_error(self) -> None:
         worker = WorkerHarness(["--mock-chunks", "1"])
