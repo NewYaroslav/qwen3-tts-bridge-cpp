@@ -420,6 +420,32 @@ The Python worker is packaged using Nuitka in standalone directory mode.
 Onefile packaging is not the initial target because PyTorch and CUDA
 distributions are large and often need runtime files next to the executable.
 
+The initial worker packaging scaffold uses a separate locked tool environment:
+
+```text
+.\scripts\setup-python-packaging.ps1 -UseVenv
+.\scripts\package-worker.ps1 -UseVenv -DryRun
+.\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads
+```
+
+The dry run prints the exact Nuitka command without compiling. A real run stages
+the worker into:
+
+```text
+dist/QwenTTSBridge/
+    worker/
+        qwen_tts_worker.exe
+    config/
+    models/
+```
+
+By default, the script packages the bridge worker code and installed runtime
+dependencies visible to the selected Python environment. Use
+`-IncludeQwenPackage` when the `qwen_tts` package is installed and should be
+forced into the Nuitka dependency graph. Full PyTorch/CUDA runtime validation,
+model-file layout, and packaged Qwen smoke tests remain follow-up packaging
+work.
+
 ## Planned Milestones
 
 ### Milestone 1: Protocol Prototype
@@ -491,3 +517,4 @@ model.
 - Qwen3-TTS upstream: https://github.com/QwenLM/Qwen3-TTS
 - Qwen3-TTS streaming fork: https://github.com/NewYaroslav/Qwen3-TTS-streaming
 - Qwen3-TTS streaming documentation: https://qwenlm-qwen3-tts.mintlify.app/guides/streaming
+- Nuitka user manual: https://nuitka.net/user-documentation/user-manual.html

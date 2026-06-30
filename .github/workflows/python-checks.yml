@@ -6,7 +6,9 @@ on:
       - ".github/workflows/python-checks.yml"
       - "pyproject.toml"
       - "scripts/check-python.ps1"
+      - "scripts/package-worker.ps1"
       - "scripts/setup-python-dev.ps1"
+      - "scripts/setup-python-packaging.ps1"
       - "tests/python/**"
       - "worker/**"
   push:
@@ -16,7 +18,9 @@ on:
       - ".github/workflows/python-checks.yml"
       - "pyproject.toml"
       - "scripts/check-python.ps1"
+      - "scripts/package-worker.ps1"
       - "scripts/setup-python-dev.ps1"
+      - "scripts/setup-python-packaging.ps1"
       - "tests/python/**"
       - "worker/**"
 
@@ -41,3 +45,7 @@ jobs:
       - name: Run Python checks
         shell: pwsh
         run: .\scripts\check-python.ps1 -Python python
+
+      - name: Validate worker packaging command
+        shell: pwsh
+        run: .\scripts\package-worker.ps1 -Python python -DryRun
