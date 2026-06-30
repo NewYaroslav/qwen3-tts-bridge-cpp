@@ -27,7 +27,7 @@ on:
 jobs:
   windows:
     name: Windows MSVC (${{ matrix.name }})
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     strategy:
       fail-fast: false
