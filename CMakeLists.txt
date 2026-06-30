@@ -35,6 +35,8 @@ if(WIN32)
 endif()
 
 add_library(qwen_tts_bridge
+    src/qwen_tts_bridge/audio/SaveWavCallbacks.cpp
+    src/qwen_tts_bridge/audio/WavWriter.cpp
     src/qwen_tts_bridge/client/QwenTtsClient.cpp
     src/qwen_tts_bridge/protocol/control/ControlCodec.cpp
     src/qwen_tts_bridge/protocol/control/ControlDecode.cpp
@@ -69,8 +71,6 @@ if(QWEN_TTS_BRIDGE_BUILD_EXAMPLES)
     endif()
 
     add_executable(qwen_tts_save_wav
-        examples/SaveWavCallbacks.cpp
-        examples/WavWriter.cpp
         examples/qwen_tts_save_wav.cpp
     )
 
@@ -111,33 +111,24 @@ if(QWEN_TTS_BRIDGE_BUILD_TESTS)
 
     add_test(NAME control_codec_test COMMAND control_codec_test)
 
-    if(QWEN_TTS_BRIDGE_BUILD_EXAMPLES)
-        add_executable(qwen_tts_save_wav_callbacks_test
-            examples/SaveWavCallbacks.cpp
-            examples/WavWriter.cpp
-            tests/qwen_tts_save_wav_callbacks_test.cpp
-        )
+    add_executable(qwen_tts_save_wav_callbacks_test
+        tests/qwen_tts_save_wav_callbacks_test.cpp
+    )
 
-        target_include_directories(qwen_tts_save_wav_callbacks_test
-            PRIVATE
-                "${CMAKE_CURRENT_SOURCE_DIR}/examples"
-        )
+    target_link_libraries(qwen_tts_save_wav_callbacks_test
+        PRIVATE
+            QwenTTSBridge::qwen_tts_bridge
+    )
 
-        target_link_libraries(qwen_tts_save_wav_callbacks_test
-            PRIVATE
-                QwenTTSBridge::qwen_tts_bridge
-        )
+    target_compile_definitions(qwen_tts_save_wav_callbacks_test
+        PRIVATE
+            QWEN_TTS_BRIDGE_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}"
+    )
 
-        target_compile_definitions(qwen_tts_save_wav_callbacks_test
-            PRIVATE
-                QWEN_TTS_BRIDGE_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}"
-        )
-
-        add_test(
-            NAME qwen_tts_save_wav_callbacks_test
-            COMMAND qwen_tts_save_wav_callbacks_test
-        )
-    endif()
+    add_test(
+        NAME qwen_tts_save_wav_callbacks_test
+        COMMAND qwen_tts_save_wav_callbacks_test
+    )
 
     if(Python3_Interpreter_FOUND)
         add_executable(stdio_transport_test

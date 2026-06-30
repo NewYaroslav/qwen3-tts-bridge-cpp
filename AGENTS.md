@@ -161,6 +161,23 @@ qwen_tts_bridge/data.hpp
 qwen_tts_bridge/protocol/framing.hpp
 ```
 
+Prefer umbrella headers as the public connection points between domains and
+layers. Public headers and examples should include the stable domain surface,
+for example:
+
+```cpp
+#include <qwen_tts_bridge/audio.hpp>
+#include <qwen_tts_bridge/client.hpp>
+#include <qwen_tts_bridge/transport.hpp>
+```
+
+Avoid direct leaf-to-leaf project includes in public headers when a forward
+declaration or a higher-level umbrella header can express the dependency. It is
+acceptable that umbrella headers include related leaf headers in advance and
+that some leaf headers are not fully standalone; this follows the style used by
+the reference libraries. Implementation-private headers inside one subdomain
+may still be included directly by that subdomain's `.cpp` files.
+
 Concrete implementations should be named after their responsibility, for
 example `FrameParser`, `FrameCodec`, `StdIoTransport`, or `RequestRegistry`.
 Avoid naming a file or class `Protocol` unless it truly owns the whole protocol

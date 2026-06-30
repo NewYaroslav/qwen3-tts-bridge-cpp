@@ -8,7 +8,7 @@
 #include <fstream>
 #include <string>
 
-namespace qwen_tts_bridge::examples {
+namespace qwen_tts_bridge::audio {
 
 /// \class WavWriter
 /// \brief Writes raw PCM bytes into a RIFF/WAVE file and patches the header on close.
@@ -60,4 +60,4 @@ private:
     bool closed_ = true;
 };
 
-} // namespace qwen_tts_bridge::examples
+} // namespace qwen_tts_bridge::audio

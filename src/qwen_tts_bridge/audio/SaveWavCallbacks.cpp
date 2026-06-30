@@ -1,9 +1,9 @@
-#include "SaveWavCallbacks.hpp"
+#include <qwen_tts_bridge/audio.hpp>
 
 #include <stdexcept>
 #include <utility>
 
-namespace qwen_tts_bridge::examples {
+namespace qwen_tts_bridge::audio {
 namespace {
 
 bool is_terminal(SaveWavState& state) {
@@ -138,4 +138,4 @@ TtsCallbacks make_save_wav_callbacks(
     return callbacks;
 }
 
-} // namespace qwen_tts_bridge::examples
+} // namespace qwen_tts_bridge::audio

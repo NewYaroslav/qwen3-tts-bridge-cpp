@@ -1,6 +1,4 @@
-#include "SaveWavCallbacks.hpp"
-#include "WavWriter.hpp"
-
+#include <qwen_tts_bridge/audio.hpp>
 #include <qwen_tts_bridge/client/ClientTypes.hpp>
 
 #include <chrono>
@@ -25,10 +23,10 @@ namespace {
 
 using qwen_tts_bridge::AudioFormat;
 using qwen_tts_bridge::PcmChunk;
-using qwen_tts_bridge::examples::SaveWavState;
-using qwen_tts_bridge::examples::WavWriter;
-using qwen_tts_bridge::examples::make_save_wav_callbacks;
-using qwen_tts_bridge::examples::wait_for_save_wav_terminal;
+using qwen_tts_bridge::audio::SaveWavState;
+using qwen_tts_bridge::audio::WavWriter;
+using qwen_tts_bridge::audio::make_save_wav_callbacks;
+using qwen_tts_bridge::audio::wait_for_save_wav_terminal;
 
 std::string output_path(const std::string& file_name) {
     return std::string(QWEN_TTS_BRIDGE_TEST_OUTPUT_DIR) + "/" + file_name;
