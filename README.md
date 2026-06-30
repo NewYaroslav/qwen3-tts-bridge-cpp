@@ -454,6 +454,12 @@ The packaged-worker smoke test launches `qwen_tts_worker.exe`, speaks the real
 QTB stdin/stdout protocol, sends one mock synthesis request, verifies that at
 least one PCM frame is returned, and shuts the worker down gracefully.
 
+GitHub Actions also provides a manual `Packaged Worker Smoke` workflow. It is
+started with `workflow_dispatch`, builds the standalone worker on
+`windows-2022`, runs the same mock packaged-worker smoke test, and can upload
+`dist/QwenTTSBridge` as an artifact. It is intentionally manual because Nuitka
+compilation is slower than the normal PR checks.
+
 ## Planned Milestones
 
 ### Milestone 1: Protocol Prototype

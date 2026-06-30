@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/python-checks.yml"
+      - ".github/workflows/packaged-worker-smoke.yml"
       - "pyproject.toml"
       - "scripts/check-python.ps1"
       - "scripts/package-worker.ps1"
@@ -17,6 +18,7 @@ on:
       - main
     paths:
       - ".github/workflows/python-checks.yml"
+      - ".github/workflows/packaged-worker-smoke.yml"
       - "pyproject.toml"
       - "scripts/check-python.ps1"
       - "scripts/package-worker.ps1"
