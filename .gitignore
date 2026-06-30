@@ -21,11 +21,13 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
 
 # Nuitka and Python packaging output
 *.build/
 *.dist/
 *.onefile-build/
+/worker/build/
 /worker/*.build/
 /worker/*.dist/
 /worker/*.onefile-build/

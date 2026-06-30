@@ -24,12 +24,21 @@ def decode_control_payload(payload: bytes) -> dict[str, Any]:
     try:
         value = json.loads(payload.decode("utf-8"))
     except UnicodeDecodeError as exc:
-        raise ControlMessageError("invalid_json", "control payload is not UTF-8") from exc
+        raise ControlMessageError(
+            "invalid_json",
+            "control payload is not UTF-8",
+        ) from exc
     except json.JSONDecodeError as exc:
-        raise ControlMessageError("invalid_json", "control payload is not valid JSON") from exc
+        raise ControlMessageError(
+            "invalid_json",
+            "control payload is not valid JSON",
+        ) from exc
 
     if not isinstance(value, dict):
-        raise ControlMessageError("payload_not_object", "control payload must be an object")
+        raise ControlMessageError(
+            "payload_not_object",
+            "control payload must be an object",
+        )
 
     if "protocol_version" in value or "request_id" in value:
         raise ControlMessageError(
@@ -41,7 +50,10 @@ def decode_control_payload(payload: bytes) -> dict[str, Any]:
     if message_type is None:
         raise ControlMessageError("missing_message_type", "missing message_type")
     if not isinstance(message_type, str):
-        raise ControlMessageError("invalid_message_type", "message_type must be a string")
+        raise ControlMessageError(
+            "invalid_message_type",
+            "message_type must be a string",
+        )
 
     return value
 
@@ -86,4 +98,3 @@ def error_frame(
             }
         ),
     )
-

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import io
 import queue
 import threading
 import traceback
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Deque, Optional
+from typing import Any, BinaryIO, Deque, Optional, TextIO, cast
 
 from qwen_tts_bridge_worker.engine import (
     AudioFormat,
@@ -38,7 +37,7 @@ class _RequestSlot:
 class _OutputWriter:
     """Single writer thread that serializes all worker stdout frames."""
 
-    def __init__(self, output: io.BufferedWriter, max_queue_size: int) -> None:
+    def __init__(self, output: BinaryIO, max_queue_size: int) -> None:
         self._output = output
         self._queue: queue.Queue[Optional[bytes]] = queue.Queue(maxsize=max_queue_size)
         self._thread = threading.Thread(target=self._run, name="qtb-stdout-writer")
@@ -67,9 +66,9 @@ class StdioWorkerServer:
 
     def __init__(
         self,
-        input_stream: io.BufferedReader,
-        output_stream: io.BufferedWriter,
-        error_stream: io.TextIOBase,
+        input_stream: BinaryIO,
+        output_stream: BinaryIO,
+        error_stream: TextIO,
         engine: TtsEngine,
         worker_version: str = "0.2.0",
         output_queue_size: int = 128,
@@ -134,8 +133,9 @@ class StdioWorkerServer:
 
     def _read_loop(self) -> None:
         while not self._shutdown_requested and not self._fatal_error:
-            if hasattr(self._input, "read1"):
-                chunk = self._input.read1(self._read_chunk_size)
+            read1 = getattr(self._input, "read1", None)
+            if callable(read1):
+                chunk = cast(bytes, read1(self._read_chunk_size))
             else:
                 chunk = self._input.read(self._read_chunk_size)
             if not chunk:
@@ -523,7 +523,10 @@ class StdioWorkerServer:
         )
 
         try:
-            for pcm_chunk in self._engine.synthesize_stream(slot.request, slot.cancel_event):
+            for pcm_chunk in self._engine.synthesize_stream(
+                slot.request,
+                slot.cancel_event,
+            ):
                 if slot.cancel_event.is_set():
                     break
                 if not pcm_chunk:

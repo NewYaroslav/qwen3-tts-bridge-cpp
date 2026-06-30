@@ -11,7 +11,6 @@ from qwen_tts_bridge_worker.protocol.data.enums import (
     ProtocolError,
 )
 
-
 BytesLike = Union[bytes, bytearray, memoryview]
 
 

@@ -8,18 +8,16 @@ import unittest
 from pathlib import Path
 from typing import Callable, Optional
 
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT_DIR / "worker"))
-
-from qwen_tts_bridge_worker.protocol import (  # noqa: E402
+from qwen_tts_bridge_worker.protocol import (
     Frame,
     FrameParser,
     FrameType,
     ParseStatus,
     encode_frame,
 )
-from qwen_tts_bridge_worker.protocol.control import encode_json_payload  # noqa: E402
+from qwen_tts_bridge_worker.protocol.control import encode_json_payload
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 class WorkerHarness:
@@ -31,7 +29,7 @@ class WorkerHarness:
         if engine_args is None:
             engine_args = ["--mock"]
         env = os.environ.copy()
-        worker_path = str(ROOT_DIR / "worker")
+        worker_path = str(ROOT_DIR / "worker" / "src")
         env["PYTHONPATH"] = (
             worker_path
             if not env.get("PYTHONPATH")
@@ -42,7 +40,7 @@ class WorkerHarness:
             [
                 sys.executable,
                 "-m",
-                "qwen_tts_bridge_worker.main",
+                "qwen_tts_bridge_worker",
                 *engine_args,
                 *extra_args,
             ],
@@ -151,6 +149,18 @@ def is_control_message(
 
 
 class MockWorkerTests(unittest.TestCase):
+    def test_mock_subcommand_starts_worker(self) -> None:
+        worker = WorkerHarness(["--chunks", "1"], engine_args=["mock"])
+        self.addCleanup(worker.close)
+
+        self._hello(worker)
+
+        worker.send_control(0, {"message_type": "shutdown", "mode": "cancel"})
+        shutdown_ack = control_payload(worker.read_frame())
+
+        self.assertEqual("shutdown_ack", shutdown_ack["message_type"])
+        self.assertEqual(0, worker.wait())
+
     def test_engine_mock_alias_starts_worker(self) -> None:
         worker = WorkerHarness(["--mock-chunks", "1"], engine_args=["--engine", "mock"])
         self.addCleanup(worker.close)
@@ -236,7 +246,10 @@ class MockWorkerTests(unittest.TestCase):
         started_payload = control_payload(started)
         self.assertEqual("started", started_payload["message_type"])
         self.assertEqual(1, started.header.request_id)
-        self.assertEqual(24000, started_payload["audio_format"]["sample_rate"])
+        audio_format = started_payload["audio_format"]
+        self.assertIsInstance(audio_format, dict)
+        assert isinstance(audio_format, dict)
+        self.assertEqual(24000, audio_format["sample_rate"])
 
         self.assertEqual(FrameType.AUDIO_PCM, first_audio.header.frame_type)
         self.assertEqual(FrameType.AUDIO_PCM, second_audio.header.frame_type)

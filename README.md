@@ -295,7 +295,8 @@ Planned layout:
 
 ```text
 src/                    C++17 client implementation
-worker/                 Python worker implementation
+worker/                 Installable Python worker package
+worker/src/             Python worker import root
 external/cpp/           C++ dependencies as git submodules
 external/python/        vendored or patched Python projects as git submodules
 scripts/                setup, build, packaging, and diagnostics scripts
@@ -307,6 +308,14 @@ dist/                   generated release packages, not committed
 
 C++ headers and source files are stored together in `src/` during the initial
 phase.
+
+The Python worker uses a `src` package layout. For local development, install
+it in editable mode or run tests with `worker/src` on `PYTHONPATH`:
+
+```text
+py -3 -m pip install -e worker
+py -3 -m unittest discover -s tests/python
+```
 
 ## Dependencies
 

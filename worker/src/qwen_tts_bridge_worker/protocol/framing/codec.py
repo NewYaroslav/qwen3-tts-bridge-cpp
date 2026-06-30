@@ -17,7 +17,6 @@ from qwen_tts_bridge_worker.protocol.data import (
     FrameType,
 )
 
-
 HEADER_STRUCT = struct.Struct("<4sHHHHIQ")
 
 
