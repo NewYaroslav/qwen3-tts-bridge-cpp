@@ -61,6 +61,7 @@ def build_engine_config(args: argparse.Namespace) -> EngineConfig:
                 model_path=args.model_path,
                 device=args.device,
                 dtype=args.dtype,
+                attn_implementation=args.attn_implementation,
             )
         raise ValueError(f"unsupported engine command: {engine_command}")
 
@@ -85,6 +86,10 @@ def build_engine_config(args: argparse.Namespace) -> EngineConfig:
             model_path=_value_or_default(args.legacy_model_path, ""),
             device=_value_or_default(args.legacy_device, "cuda"),
             dtype=_value_or_default(args.legacy_dtype, "auto"),
+            attn_implementation=_value_or_default(
+                args.legacy_attn_implementation,
+                "",
+            ),
         )
     raise ValueError(f"unsupported engine: {engine_name}")
 
@@ -137,6 +142,10 @@ def _add_legacy_engine_options(parser: argparse.ArgumentParser) -> None:
     qwen_group.add_argument("--model-path", dest="legacy_model_path")
     qwen_group.add_argument("--device", dest="legacy_device")
     qwen_group.add_argument("--dtype", dest="legacy_dtype")
+    qwen_group.add_argument(
+        "--attn-implementation",
+        dest="legacy_attn_implementation",
+    )
 
 
 def _add_mock_subcommand(
@@ -178,11 +187,12 @@ def _add_qwen_subcommand(
     qwen_parser = subparsers.add_parser(
         "qwen",
         parents=[server_options],
-        help="Run the future Qwen3-TTS engine.",
+        help="Run the Qwen3-TTS engine.",
     )
-    qwen_parser.add_argument("--model-path", default="")
+    qwen_parser.add_argument("--model-path", required=True)
     qwen_parser.add_argument("--device", default="cuda")
     qwen_parser.add_argument("--dtype", default="auto")
+    qwen_parser.add_argument("--attn-implementation", default="")
 
 
 def _reject_mixed_legacy_engine_flags(args: argparse.Namespace) -> None:
@@ -195,6 +205,7 @@ def _reject_mixed_legacy_engine_flags(args: argparse.Namespace) -> None:
         args.legacy_model_path is not None,
         args.legacy_device is not None,
         args.legacy_dtype is not None,
+        args.legacy_attn_implementation is not None,
     )
     if any(legacy_values):
         raise ValueError(

@@ -338,6 +338,19 @@ To keep the tools isolated in a local virtual environment, use:
 CI runs the same scripts with the Python executable provided by
 `actions/setup-python`.
 
+Current Python worker engine backends:
+
+```text
+python -m qwen_tts_bridge_worker mock
+python -m qwen_tts_bridge_worker qwen --model-path <model-or-repo>
+```
+
+The `qwen` backend lazily loads the vendored or installed Qwen3-TTS streaming
+package only when selected. The first adapter pass supports CustomVoice and
+VoiceDesign models through full-audio generation exposed as PCM chunks. Base
+voice-clone requests, reference audio, and true incremental Qwen streaming are
+planned follow-ups.
+
 ## Dependencies
 
 All source dependencies are managed as git submodules and pinned to exact

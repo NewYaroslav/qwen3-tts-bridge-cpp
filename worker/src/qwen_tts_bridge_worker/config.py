@@ -32,16 +32,19 @@ class MockEngineConfig:
 
 @dataclass(frozen=True, slots=True)
 class QwenEngineConfig:
-    """Configuration placeholder for the future Qwen3-TTS engine adapter."""
+    """Configuration for the Qwen3-TTS engine adapter."""
 
-    model_path: str = ""
+    model_path: str
     device: str = "cuda"
     dtype: str = "auto"
+    attn_implementation: str = ""
     kind: Literal["qwen"] = field(default="qwen", init=False)
 
     def __post_init__(self) -> None:
-        """Validate settings shared by the future Qwen engine adapter."""
+        """Validate Qwen engine adapter settings."""
 
+        if not self.model_path:
+            raise ValueError("qwen.model_path must not be empty")
         if not self.device:
             raise ValueError("qwen.device must not be empty")
         if not self.dtype:

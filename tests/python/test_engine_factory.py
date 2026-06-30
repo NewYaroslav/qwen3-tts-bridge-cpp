@@ -1,3 +1,5 @@
+import contextlib
+import io
 import math
 import unittest
 
@@ -12,8 +14,8 @@ from qwen_tts_bridge_worker.config import (
     WorkerConfig,
 )
 from qwen_tts_bridge_worker.engine import (
-    EngineFactoryError,
     MockTtsEngine,
+    QwenTtsEngine,
     UnsupportedAudioFormatError,
     create_engine,
 )
@@ -32,12 +34,36 @@ class EngineFactoryTests(unittest.TestCase):
         self.assertEqual(2, config.chunk_count)
         self.assertEqual(40, config.chunk_duration_ms)
 
-    def test_qwen_subcommand_is_explicitly_unavailable(self) -> None:
+    def test_qwen_subcommand_builds_qwen_config(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["qwen", "--device", "cuda", "--dtype", "auto"])
+        args = parser.parse_args(
+            [
+                "qwen",
+                "--model-path",
+                "models/qwen",
+                "--device",
+                "cuda:0",
+                "--dtype",
+                "bfloat16",
+                "--attn-implementation",
+                "flash_attention_2",
+            ]
+        )
 
-        with self.assertRaisesRegex(EngineFactoryError, "not implemented"):
-            create_engine(build_engine_config(args))
+        config = build_engine_config(args)
+
+        self.assertIsInstance(config, QwenEngineConfig)
+        assert isinstance(config, QwenEngineConfig)
+        self.assertEqual("models/qwen", config.model_path)
+        self.assertEqual("cuda:0", config.device)
+        self.assertEqual("bfloat16", config.dtype)
+        self.assertEqual("flash_attention_2", config.attn_implementation)
+
+    def test_qwen_subcommand_requires_model_path(self) -> None:
+        parser = build_parser()
+
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["qwen"])
 
     def test_legacy_mock_options_still_work(self) -> None:
         parser = build_parser()
@@ -58,7 +84,9 @@ class EngineFactoryTests(unittest.TestCase):
 
     def test_legacy_qwen_options_cannot_be_mixed_with_subcommand(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["--device", "cpu", "qwen"])
+        args = parser.parse_args(
+            ["--device", "cpu", "qwen", "--model-path", "models/qwen"]
+        )
 
         with self.assertRaisesRegex(ValueError, "legacy engine flags"):
             build_engine_config(args)
@@ -126,12 +154,15 @@ class EngineFactoryTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedAudioFormatError, "s16le"):
             engine.validate_request(unsupported)
 
-    def test_qwen_engine_is_explicitly_unavailable(self) -> None:
-        with self.assertRaisesRegex(EngineFactoryError, "not implemented"):
-            create_engine(QwenEngineConfig())
+    def test_create_qwen_engine_from_config(self) -> None:
+        engine = create_engine(QwenEngineConfig(model_path="models/qwen"))
+
+        self.assertIsInstance(engine, QwenTtsEngine)
+        self.assertFalse(engine.capabilities.streaming)
+        self.assertTrue(engine.capabilities.instructions)
 
     def test_worker_config_stores_only_selected_engine_config(self) -> None:
-        config = WorkerConfig(engine=QwenEngineConfig())
+        config = WorkerConfig(engine=QwenEngineConfig(model_path="models/qwen"))
 
         self.assertIsInstance(config.engine, QwenEngineConfig)
 
@@ -141,8 +172,9 @@ class EngineFactoryTests(unittest.TestCase):
 
     def test_qwen_config_rejects_empty_device_and_dtype(self) -> None:
         for qwen_config in (
-            {"device": ""},
-            {"dtype": ""},
+            {"model_path": ""},
+            {"model_path": "models/qwen", "device": ""},
+            {"model_path": "models/qwen", "dtype": ""},
         ):
             with self.subTest(qwen_config=qwen_config):
                 with self.assertRaises(ValueError):
