@@ -80,10 +80,16 @@ class FrameParser:
         try:
             frame_type = FrameType(frame_type_value)
         except ValueError:
-            return self._make_fatal(ProtocolError.UNKNOWN_FRAME_TYPE, "unknown frame type")
+            return self._make_fatal(
+                ProtocolError.UNKNOWN_FRAME_TYPE,
+                "unknown frame type",
+            )
 
         if flags != 0:
-            return self._make_fatal(ProtocolError.UNSUPPORTED_FLAGS, "unsupported frame flags")
+            return self._make_fatal(
+                ProtocolError.UNSUPPORTED_FLAGS,
+                "unsupported frame flags",
+            )
 
         if (
             payload_size > MAX_FRAME_PAYLOAD_BYTES

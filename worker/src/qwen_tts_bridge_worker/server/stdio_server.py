@@ -523,7 +523,10 @@ class StdioWorkerServer:
         )
 
         try:
-            for pcm_chunk in self._engine.synthesize_stream(slot.request, slot.cancel_event):
+            for pcm_chunk in self._engine.synthesize_stream(
+                slot.request,
+                slot.cancel_event,
+            ):
                 if slot.cancel_event.is_set():
                     break
                 if not pcm_chunk:

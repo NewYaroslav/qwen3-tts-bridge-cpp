@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qwen-tts-bridge-worker"
+version = "0.2.0"
+description = "Python worker process for qwen3-tts-bridge-cpp"
+requires-python = ">=3.11"
+
+[project.scripts]
+qwen-tts-bridge-worker = "qwen_tts_bridge_worker.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

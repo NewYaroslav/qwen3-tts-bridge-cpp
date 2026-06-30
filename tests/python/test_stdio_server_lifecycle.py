@@ -1,19 +1,13 @@
 import io
-import sys
 import threading
 import unittest
 from collections.abc import Iterable
-from pathlib import Path
 
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT_DIR / "worker"))
-
-from qwen_tts_bridge_worker.engine.types import (  # noqa: E402
+from qwen_tts_bridge_worker.engine.types import (
     EngineCapabilities,
     SynthesisRequest,
 )
-from qwen_tts_bridge_worker.server import StdioWorkerServer  # noqa: E402
+from qwen_tts_bridge_worker.server import StdioWorkerServer
 
 
 class FailingLoadEngine:

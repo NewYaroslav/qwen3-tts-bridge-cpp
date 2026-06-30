@@ -1,13 +1,7 @@
 import struct
-import sys
 import unittest
-from pathlib import Path
 
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT_DIR / "worker"))
-
-from qwen_tts_bridge_worker.protocol import (  # noqa: E402
+from qwen_tts_bridge_worker.protocol import (
     FrameHeader,
     MIN_HEADER_SIZE,
     PROTOCOL_VERSION,

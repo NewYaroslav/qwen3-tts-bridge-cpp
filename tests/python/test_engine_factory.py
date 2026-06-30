@@ -1,27 +1,39 @@
 import math
-import sys
 import unittest
-from pathlib import Path
 
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT_DIR / "worker"))
-
-from qwen_tts_bridge_worker.config import (  # noqa: E402
+from qwen_tts_bridge_worker.cli import build_engine_config, build_parser
+from qwen_tts_bridge_worker.config import (
     MockEngineConfig,
     QwenEngineConfig,
     WorkerConfig,
 )
-from qwen_tts_bridge_worker.engine import (  # noqa: E402
+from qwen_tts_bridge_worker.engine import (
     EngineFactoryError,
     MockTtsEngine,
     UnsupportedAudioFormatError,
     create_engine,
 )
-from qwen_tts_bridge_worker.engine.types import AudioFormat, SynthesisRequest  # noqa: E402
+from qwen_tts_bridge_worker.engine.types import AudioFormat, SynthesisRequest
 
 
 class EngineFactoryTests(unittest.TestCase):
+    def test_mock_subcommand_builds_mock_config(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["mock", "--chunks", "2", "--chunk-ms", "40"])
+
+        config = build_engine_config(args)
+
+        self.assertIsInstance(config, MockEngineConfig)
+        self.assertEqual(2, config.chunk_count)
+        self.assertEqual(40, config.chunk_duration_ms)
+
+    def test_qwen_subcommand_is_explicitly_unavailable(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["qwen", "--device", "cuda", "--dtype", "auto"])
+
+        with self.assertRaisesRegex(EngineFactoryError, "not implemented"):
+            create_engine(build_engine_config(args))
+
     def test_create_mock_engine_from_config(self) -> None:
         config = MockEngineConfig(
             chunk_count=2,
