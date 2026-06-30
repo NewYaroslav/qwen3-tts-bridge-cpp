@@ -23,7 +23,13 @@ from qwen_tts_bridge_worker.protocol.control import encode_json_payload  # noqa:
 
 
 class WorkerHarness:
-    def __init__(self, extra_args: list[str]) -> None:
+    def __init__(
+        self,
+        extra_args: list[str],
+        engine_args: Optional[list[str]] = None,
+    ) -> None:
+        if engine_args is None:
+            engine_args = ["--mock"]
         env = os.environ.copy()
         worker_path = str(ROOT_DIR / "worker")
         env["PYTHONPATH"] = (
@@ -37,7 +43,7 @@ class WorkerHarness:
                 sys.executable,
                 "-m",
                 "qwen_tts_bridge_worker.main",
-                "--mock",
+                *engine_args,
                 *extra_args,
             ],
             cwd=str(ROOT_DIR),
@@ -145,6 +151,18 @@ def is_control_message(
 
 
 class MockWorkerTests(unittest.TestCase):
+    def test_engine_mock_alias_starts_worker(self) -> None:
+        worker = WorkerHarness(["--mock-chunks", "1"], engine_args=["--engine", "mock"])
+        self.addCleanup(worker.close)
+
+        self._hello(worker)
+
+        worker.send_control(0, {"message_type": "shutdown", "mode": "cancel"})
+        shutdown_ack = control_payload(worker.read_frame())
+
+        self.assertEqual("shutdown_ack", shutdown_ack["message_type"])
+        self.assertEqual(0, worker.wait())
+
     def test_handshake_ping_shutdown(self) -> None:
         worker = WorkerHarness(["--mock-chunks", "1"])
         self.addCleanup(worker.close)
@@ -227,6 +245,33 @@ class MockWorkerTests(unittest.TestCase):
 
         self.assertEqual("completed", control_payload(completed)["message_type"])
         self.assertEqual(1, completed.header.request_id)
+
+    def test_unsupported_audio_format_is_protocol_request_error(self) -> None:
+        worker = WorkerHarness(["--mock-chunks", "1"])
+        self.addCleanup(worker.close)
+        self._hello(worker)
+
+        worker.send_control(
+            1,
+            {
+                "message_type": "synthesize",
+                "text": "unsupported output",
+                "output": {
+                    "sample_format": "s16le",
+                    "sample_rate": 48000,
+                    "channels": 1,
+                },
+            },
+        )
+
+        error = worker.read_frame(
+            lambda frame: frame.header.frame_type == FrameType.ERROR_JSON
+        )
+        payload = control_payload(error)
+
+        self.assertEqual(1, error.header.request_id)
+        self.assertEqual("request_error", payload["category"])
+        self.assertEqual("unsupported_audio_format", payload["code"])
 
     def test_cancel_queued_request(self) -> None:
         worker = WorkerHarness(

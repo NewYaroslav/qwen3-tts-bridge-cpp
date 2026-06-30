@@ -3,19 +3,33 @@
 from __future__ import annotations
 
 import threading
-from typing import Iterable, Protocol
+from collections.abc import Iterable
+from typing import Protocol
 
-from qwen_tts_bridge_worker.engine.types import SynthesisRequest
+from qwen_tts_bridge_worker.engine.types import (
+    EngineCapabilities,
+    SynthesisRequest,
+)
 
 
 class TtsEngine(Protocol):
     """Narrow synthesis engine interface hidden behind the worker server."""
+
+    @property
+    def capabilities(self) -> EngineCapabilities:
+        """Return capabilities exposed by this engine."""
 
     def load(self) -> None:
         """Load model resources needed before the worker can become ready."""
 
     def warmup(self) -> None:
         """Run optional warmup before the worker sends ready."""
+
+    def validate_request(
+        self,
+        request: SynthesisRequest,
+    ) -> None:
+        """Raise an engine-domain error if the request cannot be satisfied."""
 
     def synthesize_stream(
         self,
@@ -26,4 +40,3 @@ class TtsEngine(Protocol):
 
     def close(self) -> None:
         """Release engine resources during worker shutdown."""
-

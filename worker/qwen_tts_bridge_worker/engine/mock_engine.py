@@ -6,9 +6,14 @@ import math
 import struct
 import threading
 import time
-from typing import Iterable
+from collections.abc import Iterable
 
-from qwen_tts_bridge_worker.engine.types import AudioFormat, SynthesisRequest
+from qwen_tts_bridge_worker.engine.types import (
+    AudioFormat,
+    EngineCapabilities,
+    SynthesisRequest,
+    UnsupportedAudioFormatError,
+)
 
 
 class MockTtsEngine:
@@ -20,17 +25,28 @@ class MockTtsEngine:
         chunk_duration_ms: int = 100,
         chunk_delay_seconds: float = 0.0,
     ) -> None:
-        self._chunk_count = max(1, chunk_count)
-        self._chunk_duration_ms = max(20, chunk_duration_ms)
-        self._chunk_delay_seconds = max(0.0, chunk_delay_seconds)
+        if chunk_count <= 0:
+            raise ValueError("chunk_count must be greater than zero")
+        if chunk_duration_ms < 20:
+            raise ValueError("chunk_duration_ms must be at least 20")
+        if not math.isfinite(chunk_delay_seconds) or chunk_delay_seconds < 0.0:
+            raise ValueError("chunk_delay_seconds must be finite and non-negative")
+
+        self._chunk_count = chunk_count
+        self._chunk_duration_ms = chunk_duration_ms
+        self._chunk_delay_seconds = chunk_delay_seconds
         self._loaded = False
-        self._warmed_up = False
 
     @property
-    def warmed_up(self) -> bool:
-        """Return whether warmup has completed."""
+    def capabilities(self) -> EngineCapabilities:
+        """Return capabilities supported by the mock engine."""
 
-        return self._warmed_up
+        return EngineCapabilities(
+            streaming=True,
+            cancellation=True,
+            instructions=True,
+            voice_clone=False,
+        )
 
     def load(self) -> None:
         """Mark the mock model as loaded."""
@@ -42,7 +58,18 @@ class MockTtsEngine:
 
         if not self._loaded:
             self.load()
-        self._warmed_up = True
+
+    def validate_request(
+        self,
+        request: SynthesisRequest,
+    ) -> None:
+        """Validate that the mock engine can satisfy the requested output."""
+
+        if request.output == AudioFormat.default():
+            return
+        raise UnsupportedAudioFormatError(
+            "mock engine supports only s16le 24000 Hz mono"
+        )
 
     def synthesize_stream(
         self,
@@ -83,4 +110,3 @@ def _sine_chunk(samples: int, start_sample: int) -> bytes:
         out.extend(struct.pack("<h", sample))
 
     return bytes(out)
-

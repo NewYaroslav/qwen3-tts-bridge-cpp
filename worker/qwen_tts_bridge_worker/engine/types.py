@@ -6,7 +6,17 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
+class EngineCapabilities:
+    """Feature flags supported by an engine."""
+
+    streaming: bool
+    cancellation: bool
+    instructions: bool
+    voice_clone: bool
+
+
+@dataclass(frozen=True, slots=True)
 class AudioFormat:
     """PCM audio format used for worker output."""
 
@@ -42,7 +52,11 @@ class AudioFormat:
         )
 
 
-@dataclass(frozen=True)
+class UnsupportedAudioFormatError(ValueError):
+    """Raised when an engine cannot produce a requested audio format."""
+
+
+@dataclass(frozen=True, slots=True)
 class SynthesisRequest:
     """Normalized synthesis request passed from server to engine."""
 

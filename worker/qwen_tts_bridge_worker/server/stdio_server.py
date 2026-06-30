@@ -1,4 +1,4 @@
-"""Stdio worker server for the local mock engine."""
+"""Stdio worker server for a local TTS engine."""
 
 from __future__ import annotations
 
@@ -11,7 +11,13 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Deque, Optional
 
-from qwen_tts_bridge_worker.engine import AudioFormat, SynthesisRequest, TtsEngine
+from qwen_tts_bridge_worker.engine import (
+    AudioFormat,
+    EngineCapabilities,
+    SynthesisRequest,
+    TtsEngine,
+    UnsupportedAudioFormatError,
+)
 from qwen_tts_bridge_worker.protocol.control import (
     ControlMessageError,
     control_frame,
@@ -85,6 +91,7 @@ class StdioWorkerServer:
         self._terminal_request_ids: set[int] = set()
 
         self._hello_seen = False
+        self._warmed_up = False
         self._ready_sent = False
         self._shutdown_requested = False
         self._shutdown_ack_needed = False
@@ -100,19 +107,28 @@ class StdioWorkerServer:
         """Run the server until shutdown, EOF, or a fatal framing error."""
 
         self._writer.start()
+        engine_thread_started = False
         try:
             self._engine.load()
             self._engine.warmup()
+            self._warmed_up = True
             self._engine_thread.start()
+            engine_thread_started = True
             self._read_loop()
         except Exception:
             self._fatal_error = True
             traceback.print_exc(file=self._error)
         finally:
             self._request_shutdown(send_ack=False)
-            self._engine_thread.join()
-            self._engine.close()
-            self._writer.stop_when_drained()
+            if engine_thread_started:
+                self._engine_thread.join()
+            try:
+                self._engine.close()
+            except Exception:
+                self._fatal_error = True
+                traceback.print_exc(file=self._error)
+            finally:
+                self._writer.stop_when_drained()
 
         return 1 if self._fatal_error else 0
 
@@ -210,13 +226,10 @@ class StdioWorkerServer:
                     "message_type": "ready",
                     "worker_version": self._worker_version,
                     "session_id": self._session_id,
-                    "warmed_up": bool(getattr(self._engine, "warmed_up", True)),
-                    "capabilities": {
-                        "streaming": True,
-                        "cancellation": True,
-                        "instructions": True,
-                        "voice_clone": False,
-                    },
+                    "warmed_up": self._warmed_up,
+                    "capabilities": _capabilities_payload(
+                        self._engine.capabilities,
+                    ),
                 },
             )
         )
@@ -351,16 +364,7 @@ class StdioWorkerServer:
             )
             return None
 
-        if output != AudioFormat.default():
-            self._send_error(
-                request_id,
-                "request_error",
-                "unsupported_audio_format",
-                "mock worker supports only s16le 24000 Hz mono",
-            )
-            return None
-
-        return SynthesisRequest(
+        request = SynthesisRequest(
             request_id=request_id,
             text=text,
             language=language,
@@ -368,6 +372,18 @@ class StdioWorkerServer:
             instruction=instruction,
             output=output,
         )
+        try:
+            self._engine.validate_request(request)
+        except UnsupportedAudioFormatError as exc:
+            self._send_error(
+                request_id,
+                "request_error",
+                "unsupported_audio_format",
+                str(exc),
+            )
+            return None
+
+        return request
 
     def _handle_cancel(self, request_id: int) -> None:
         if request_id == 0:
@@ -522,7 +538,7 @@ class StdioWorkerServer:
                 request_id,
                 "model_error",
                 "synthesis_failed",
-                str(exc) or "mock synthesis failed",
+                str(exc) or "synthesis failed",
             )
             return
 
@@ -550,3 +566,12 @@ class StdioWorkerServer:
         message: str,
     ) -> None:
         self._writer.send(error_frame(request_id, category, code, message))
+
+
+def _capabilities_payload(capabilities: EngineCapabilities) -> dict[str, bool]:
+    return {
+        "streaming": capabilities.streaming,
+        "cancellation": capabilities.cancellation,
+        "instructions": capabilities.instructions,
+        "voice_clone": capabilities.voice_clone,
+    }
