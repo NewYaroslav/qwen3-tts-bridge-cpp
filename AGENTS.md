@@ -950,9 +950,10 @@ worker/requirements-packaging.lock.txt
 
 Keep packaging dependencies separate from Python development dependencies.
 `package-worker.ps1 -DryRun` should remain a cheap way to validate the generated
-Nuitka command without compiling. Full PyTorch, CUDA, and Qwen runtime
-validation belongs in later packaging tests, not in the first packaging
-skeleton.
+Nuitka command without compiling. Packaging scripts default to `.venv-packaging`
+when `-UseVenv` is passed so Nuitka does not pollute the development `.venv`.
+Full PyTorch, CUDA, Qwen runtime validation, and transitive packaging locks
+belong in later packaging tests, not in the first packaging skeleton.
 
 Generated release layout should resemble:
 

@@ -2,7 +2,7 @@ param(
     [string]$Python = "py",
     [string[]]$PythonArgs,
     [switch]$UseVenv,
-    [string]$VenvPath = ".venv",
+    [string]$VenvPath = ".venv-packaging",
     [string]$OutputRoot = "dist/QwenTTSBridge",
     [string]$NuitkaWorkRoot = "tmp/nuitka-worker",
     [switch]$Clean,

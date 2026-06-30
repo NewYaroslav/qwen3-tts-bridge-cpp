@@ -420,13 +420,16 @@ The Python worker is packaged using Nuitka in standalone directory mode.
 Onefile packaging is not the initial target because PyTorch and CUDA
 distributions are large and often need runtime files next to the executable.
 
-The initial worker packaging scaffold uses a separate locked tool environment:
+The initial worker packaging scaffold uses a separate pinned tool environment:
 
 ```text
 .\scripts\setup-python-packaging.ps1 -UseVenv
 .\scripts\package-worker.ps1 -UseVenv -DryRun
 .\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads
 ```
+
+With `-UseVenv`, packaging scripts default to `.venv-packaging` so Nuitka and
+future packaging-only packages do not pollute the development `.venv`.
 
 The dry run prints the exact Nuitka command without compiling. A real run stages
 the worker into:
@@ -443,8 +446,8 @@ By default, the script packages the bridge worker code and installed runtime
 dependencies visible to the selected Python environment. Use
 `-IncludeQwenPackage` when the `qwen_tts` package is installed and should be
 forced into the Nuitka dependency graph. Full PyTorch/CUDA runtime validation,
-model-file layout, and packaged Qwen smoke tests remain follow-up packaging
-work.
+model-file layout, transitive packaging locks, and packaged Qwen smoke tests
+remain follow-up packaging work.
 
 ## Planned Milestones
 
