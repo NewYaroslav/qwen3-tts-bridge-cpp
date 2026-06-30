@@ -1,4 +1,4 @@
-#include <qwen_tts_bridge/protocol/control/ControlCodecInternal.hpp>
+#include "ControlCodecInternal.hpp"
 
 #include <limits>
 #include <utility>

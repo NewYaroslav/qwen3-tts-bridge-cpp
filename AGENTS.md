@@ -171,6 +171,18 @@ for example:
 #include <qwen_tts_bridge/transport.hpp>
 ```
 
+Inside `src/qwen_tts_bridge`, umbrella headers should include project leaf
+headers with local quoted paths:
+
+```cpp
+#include "transport/ITransport.hpp"
+#include "transport/stdio/StdIoTransport.hpp"
+```
+
+Prefer that over project-qualified leaf includes such as
+`<qwen_tts_bridge/transport/ITransport.hpp>` inside the library's own umbrella
+headers.
+
 Avoid direct leaf-to-leaf project includes in public headers when a forward
 declaration or a higher-level umbrella header can express the dependency. It is
 acceptable that umbrella headers include related leaf headers in advance and

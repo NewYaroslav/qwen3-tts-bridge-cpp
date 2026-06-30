@@ -11,8 +11,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <qwen_tts_bridge/transport/ITransport.hpp>
-
 namespace qwen_tts_bridge {
 
 /// \struct StdIoTransportOptions

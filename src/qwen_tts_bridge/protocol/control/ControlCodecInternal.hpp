@@ -10,7 +10,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <qwen_tts_bridge/protocol/control/ControlCodec.hpp>
+#include "ControlMessages.hpp"
+#include "ControlCodec.hpp"
 
 namespace qwen_tts_bridge::control_detail {
 

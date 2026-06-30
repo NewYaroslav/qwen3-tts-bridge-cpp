@@ -14,10 +14,6 @@
 #include <thread>
 #include <unordered_map>
 
-#include <qwen_tts_bridge/client/ClientTypes.hpp>
-#include <qwen_tts_bridge/session.hpp>
-#include <qwen_tts_bridge/transport.hpp>
-
 namespace qwen_tts_bridge {
 
 /// \struct QwenTtsClientOptions

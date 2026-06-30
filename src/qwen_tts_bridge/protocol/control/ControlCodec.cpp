@@ -1,5 +1,4 @@
-#include <qwen_tts_bridge/protocol/control/ControlCodec.hpp>
-#include <qwen_tts_bridge/protocol/control/ControlCodecInternal.hpp>
+#include "ControlCodecInternal.hpp"
 
 #include <string>
 #include <type_traits>

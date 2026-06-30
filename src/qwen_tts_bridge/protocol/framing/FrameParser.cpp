@@ -1,6 +1,4 @@
-#include <qwen_tts_bridge/protocol/framing/FrameParser.hpp>
-
-#include <qwen_tts_bridge/protocol/framing/FrameCodec.hpp>
+#include <qwen_tts_bridge/protocol/framing.hpp>
 
 #include <utility>
 
