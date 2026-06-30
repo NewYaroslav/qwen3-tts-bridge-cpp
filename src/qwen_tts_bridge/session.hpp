@@ -3,4 +3,8 @@
 /// \file session.hpp
 /// \brief Umbrella header for worker session orchestration.
 
-#include <qwen_tts_bridge/session/WorkerSession.hpp>
+#include "data.hpp"
+#include "protocol/control.hpp"
+#include "protocol/framing.hpp"
+#include "transport.hpp"
+#include "session/WorkerSession.hpp"

@@ -3,5 +3,6 @@
 /// \file audio.hpp
 /// \brief Convenience include for optional audio utility helpers.
 
-#include <qwen_tts_bridge/audio/SaveWavCallbacks.hpp>
-#include <qwen_tts_bridge/audio/WavWriter.hpp>
+#include "client.hpp"
+#include "audio/WavWriter.hpp"
+#include "audio/SaveWavCallbacks.hpp"

@@ -1,5 +1,5 @@
 #include <qwen_tts_bridge/protocol/framing.hpp>
-#include <qwen_tts_bridge/transport/stdio/StdIoTransport.hpp>
+#include <qwen_tts_bridge/transport.hpp>
 
 #include <atomic>
 #include <condition_variable>

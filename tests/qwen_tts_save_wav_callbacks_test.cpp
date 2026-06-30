@@ -1,5 +1,4 @@
 #include <qwen_tts_bridge/audio.hpp>
-#include <qwen_tts_bridge/client/ClientTypes.hpp>
 
 #include <chrono>
 #include <cstddef>
