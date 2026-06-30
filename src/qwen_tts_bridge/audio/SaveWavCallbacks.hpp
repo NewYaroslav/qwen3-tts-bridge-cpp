@@ -3,7 +3,7 @@
 /// \file SaveWavCallbacks.hpp
 /// \brief Callback helpers shared by the save-wav example and its tests.
 
-#include "WavWriter.hpp"
+#include <qwen_tts_bridge/audio/WavWriter.hpp>
 
 #include <chrono>
 #include <condition_variable>
@@ -14,7 +14,7 @@
 
 #include <qwen_tts_bridge/client/ClientTypes.hpp>
 
-namespace qwen_tts_bridge::examples {
+namespace qwen_tts_bridge::audio {
 
 /// \struct SaveWavState
 /// \brief Shared completion state for the async save-wav example.
@@ -46,4 +46,4 @@ TtsCallbacks make_save_wav_callbacks(
     WavWriter& writer,
     const AudioFormat& expected_format);
 
-} // namespace qwen_tts_bridge::examples
+} // namespace qwen_tts_bridge::audio

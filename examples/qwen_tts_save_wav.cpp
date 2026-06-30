@@ -1,5 +1,4 @@
-#include "SaveWavCallbacks.hpp"
-
+#include <qwen_tts_bridge/audio.hpp>
 #include <qwen_tts_bridge/client.hpp>
 #include <qwen_tts_bridge/transport.hpp>
 
@@ -30,10 +29,10 @@ using qwen_tts_bridge::QwenTtsClientOptions;
 using qwen_tts_bridge::RequestId;
 using qwen_tts_bridge::StdIoTransportOptions;
 using qwen_tts_bridge::TtsRequest;
-using qwen_tts_bridge::examples::SaveWavState;
-using qwen_tts_bridge::examples::WavWriter;
-using qwen_tts_bridge::examples::make_save_wav_callbacks;
-using qwen_tts_bridge::examples::wait_for_save_wav_terminal;
+using qwen_tts_bridge::audio::SaveWavState;
+using qwen_tts_bridge::audio::WavWriter;
+using qwen_tts_bridge::audio::make_save_wav_callbacks;
+using qwen_tts_bridge::audio::wait_for_save_wav_terminal;
 
 struct ProgramOptions {
     bool help = false;

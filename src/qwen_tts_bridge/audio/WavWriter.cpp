@@ -1,11 +1,11 @@
-#include "WavWriter.hpp"
+#include <qwen_tts_bridge/audio/WavWriter.hpp>
 
 #include <array>
 #include <limits>
 #include <stdexcept>
 #include <utility>
 
-namespace qwen_tts_bridge::examples {
+namespace qwen_tts_bridge::audio {
 namespace {
 
 constexpr std::uint32_t kPcmFormat = 1;
@@ -189,4 +189,4 @@ void WavWriter::ensure_stream_ok(const char* action) {
     }
 }
 
-} // namespace qwen_tts_bridge::examples
+} // namespace qwen_tts_bridge::audio
