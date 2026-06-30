@@ -6,13 +6,13 @@ import math
 import struct
 import threading
 import time
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from qwen_tts_bridge_worker.engine.types import (
     AudioFormat,
     EngineCapabilities,
-    EngineRequestError,
     SynthesisRequest,
+    UnsupportedAudioFormatError,
 )
 
 
@@ -29,17 +29,10 @@ class MockTtsEngine:
         self._chunk_duration_ms = max(20, chunk_duration_ms)
         self._chunk_delay_seconds = max(0.0, chunk_delay_seconds)
         self._loaded = False
-        self._warmed_up = False
-
-    @property
-    def warmed_up(self) -> bool:
-        """Return whether warmup has completed."""
-
-        return self._warmed_up
 
     @property
     def capabilities(self) -> EngineCapabilities:
-        """Return protocol capabilities supported by the mock engine."""
+        """Return capabilities supported by the mock engine."""
 
         return EngineCapabilities(
             streaming=True,
@@ -58,20 +51,17 @@ class MockTtsEngine:
 
         if not self._loaded:
             self.load()
-        self._warmed_up = True
 
     def validate_request(
         self,
         request: SynthesisRequest,
-    ) -> Optional[EngineRequestError]:
+    ) -> None:
         """Validate that the mock engine can satisfy the requested output."""
 
         if request.output == AudioFormat.default():
-            return None
-        return EngineRequestError(
-            category="request_error",
-            code="unsupported_audio_format",
-            message="mock engine supports only s16le 24000 Hz mono",
+            return
+        raise UnsupportedAudioFormatError(
+            "mock engine supports only s16le 24000 Hz mono"
         )
 
     def synthesize_stream(

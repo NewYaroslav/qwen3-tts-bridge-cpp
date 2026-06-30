@@ -246,6 +246,33 @@ class MockWorkerTests(unittest.TestCase):
         self.assertEqual("completed", control_payload(completed)["message_type"])
         self.assertEqual(1, completed.header.request_id)
 
+    def test_unsupported_audio_format_is_protocol_request_error(self) -> None:
+        worker = WorkerHarness(["--mock-chunks", "1"])
+        self.addCleanup(worker.close)
+        self._hello(worker)
+
+        worker.send_control(
+            1,
+            {
+                "message_type": "synthesize",
+                "text": "unsupported output",
+                "output": {
+                    "sample_format": "s16le",
+                    "sample_rate": 48000,
+                    "channels": 1,
+                },
+            },
+        )
+
+        error = worker.read_frame(
+            lambda frame: frame.header.frame_type == FrameType.ERROR_JSON
+        )
+        payload = control_payload(error)
+
+        self.assertEqual(1, error.header.request_id)
+        self.assertEqual("request_error", payload["category"])
+        self.assertEqual("unsupported_audio_format", payload["code"])
+
     def test_cancel_queued_request(self) -> None:
         worker = WorkerHarness(
             [

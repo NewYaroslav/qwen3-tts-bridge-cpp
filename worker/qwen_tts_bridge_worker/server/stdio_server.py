@@ -11,7 +11,13 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Deque, Optional
 
-from qwen_tts_bridge_worker.engine import AudioFormat, SynthesisRequest, TtsEngine
+from qwen_tts_bridge_worker.engine import (
+    AudioFormat,
+    EngineCapabilities,
+    SynthesisRequest,
+    TtsEngine,
+    UnsupportedAudioFormatError,
+)
 from qwen_tts_bridge_worker.protocol.control import (
     ControlMessageError,
     control_frame,
@@ -85,6 +91,7 @@ class StdioWorkerServer:
         self._terminal_request_ids: set[int] = set()
 
         self._hello_seen = False
+        self._warmed_up = False
         self._ready_sent = False
         self._shutdown_requested = False
         self._shutdown_ack_needed = False
@@ -104,6 +111,7 @@ class StdioWorkerServer:
         try:
             self._engine.load()
             self._engine.warmup()
+            self._warmed_up = True
             self._engine_thread.start()
             engine_thread_started = True
             self._read_loop()
@@ -218,8 +226,10 @@ class StdioWorkerServer:
                     "message_type": "ready",
                     "worker_version": self._worker_version,
                     "session_id": self._session_id,
-                    "warmed_up": self._engine.warmed_up,
-                    "capabilities": self._engine.capabilities.to_payload(),
+                    "warmed_up": self._warmed_up,
+                    "capabilities": _capabilities_payload(
+                        self._engine.capabilities,
+                    ),
                 },
             )
         )
@@ -362,13 +372,14 @@ class StdioWorkerServer:
             instruction=instruction,
             output=output,
         )
-        validation_error = self._engine.validate_request(request)
-        if validation_error is not None:
+        try:
+            self._engine.validate_request(request)
+        except UnsupportedAudioFormatError as exc:
             self._send_error(
                 request_id,
-                validation_error.category,
-                validation_error.code,
-                validation_error.message,
+                "request_error",
+                "unsupported_audio_format",
+                str(exc),
             )
             return None
 
@@ -555,3 +566,12 @@ class StdioWorkerServer:
         message: str,
     ) -> None:
         self._writer.send(error_frame(request_id, category, code, message))
+
+
+def _capabilities_payload(capabilities: EngineCapabilities) -> dict[str, bool]:
+    return {
+        "streaming": capabilities.streaming,
+        "cancellation": capabilities.cancellation,
+        "instructions": capabilities.instructions,
+        "voice_clone": capabilities.voice_clone,
+    }

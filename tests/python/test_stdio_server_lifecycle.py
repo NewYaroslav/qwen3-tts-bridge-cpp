@@ -1,9 +1,8 @@
 import io
+import sys
 import threading
 import unittest
-from typing import Iterable, Optional
-
-import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 
@@ -12,7 +11,6 @@ sys.path.insert(0, str(ROOT_DIR / "worker"))
 
 from qwen_tts_bridge_worker.engine.types import (  # noqa: E402
     EngineCapabilities,
-    EngineRequestError,
     SynthesisRequest,
 )
 from qwen_tts_bridge_worker.server import StdioWorkerServer  # noqa: E402
@@ -21,10 +19,6 @@ from qwen_tts_bridge_worker.server import StdioWorkerServer  # noqa: E402
 class FailingLoadEngine:
     def __init__(self) -> None:
         self.close_called = False
-
-    @property
-    def warmed_up(self) -> bool:
-        return False
 
     @property
     def capabilities(self) -> EngineCapabilities:
@@ -39,9 +33,8 @@ class FailingLoadEngine:
     def validate_request(
         self,
         request: SynthesisRequest,
-    ) -> Optional[EngineRequestError]:
+    ) -> None:
         del request
-        return None
 
     def synthesize_stream(
         self,

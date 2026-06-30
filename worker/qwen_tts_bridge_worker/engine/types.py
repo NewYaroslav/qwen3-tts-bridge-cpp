@@ -6,36 +6,17 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EngineCapabilities:
-    """Feature flags announced by an engine in the ready message."""
+    """Feature flags supported by an engine."""
 
     streaming: bool = True
     cancellation: bool = True
     instructions: bool = True
     voice_clone: bool = False
 
-    def to_payload(self) -> dict[str, bool]:
-        """Convert capabilities to protocol JSON fields."""
 
-        return {
-            "streaming": self.streaming,
-            "cancellation": self.cancellation,
-            "instructions": self.instructions,
-            "voice_clone": self.voice_clone,
-        }
-
-
-@dataclass(frozen=True)
-class EngineRequestError:
-    """Structured request validation error produced by an engine."""
-
-    category: str
-    code: str
-    message: str
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AudioFormat:
     """PCM audio format used for worker output."""
 
@@ -71,7 +52,11 @@ class AudioFormat:
         )
 
 
-@dataclass(frozen=True)
+class UnsupportedAudioFormatError(ValueError):
+    """Raised when an engine cannot produce a requested audio format."""
+
+
+@dataclass(frozen=True, slots=True)
 class SynthesisRequest:
     """Normalized synthesis request passed from server to engine."""
 

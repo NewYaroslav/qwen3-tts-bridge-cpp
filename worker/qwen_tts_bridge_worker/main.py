@@ -7,6 +7,7 @@ import sys
 from typing import Sequence
 
 from qwen_tts_bridge_worker.config import (
+    EngineConfig,
     MockEngineConfig,
     QwenEngineConfig,
     WorkerConfig,
@@ -23,7 +24,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         config = _config_from_args(args)
-        engine = create_engine(config)
+        engine = create_engine(config.engine)
     except (EngineFactoryError, ValueError) as exc:
         parser.error(str(exc))
         raise AssertionError("argparse exits before this point") from exc
@@ -72,6 +73,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _config_from_args(args: argparse.Namespace) -> WorkerConfig:
+    engine_config = _engine_config_from_args(args)
+    return WorkerConfig(
+        worker_version=args.worker_version,
+        output_queue_size=args.output_queue_size,
+        engine=engine_config,
+    )
+
+
+def _engine_config_from_args(args: argparse.Namespace) -> EngineConfig:
     engine_name = args.engine
     if args.mock:
         if engine_name is not None and engine_name != "mock":
@@ -80,21 +90,21 @@ def _config_from_args(args: argparse.Namespace) -> WorkerConfig:
     if engine_name is None:
         raise ValueError("only --mock or --engine mock is implemented at this stage")
 
-    return WorkerConfig(
-        worker_version=args.worker_version,
-        output_queue_size=args.output_queue_size,
-        engine=engine_name,
-        mock=MockEngineConfig(
+    if engine_name == "mock":
+        return MockEngineConfig(
             chunk_count=args.mock_chunks,
             chunk_duration_ms=args.mock_chunk_ms,
             chunk_delay_seconds=args.mock_chunk_delay,
-        ),
-        qwen=QwenEngineConfig(
+        )
+
+    if engine_name == "qwen":
+        return QwenEngineConfig(
             model_path=args.model_path,
             device=args.device,
             dtype=args.dtype,
-        ),
-    )
+        )
+
+    raise ValueError(f"unsupported engine: {engine_name}")
 
 
 if __name__ == "__main__":
