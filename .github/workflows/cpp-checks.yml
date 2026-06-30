@@ -1,0 +1,76 @@
+name: C++ Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/cpp-checks.yml"
+      - ".gitmodules"
+      - "CMakeLists.txt"
+      - "examples/**"
+      - "external/cpp/**"
+      - "src/**"
+      - "tests/**"
+      - "worker/src/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/cpp-checks.yml"
+      - ".gitmodules"
+      - "CMakeLists.txt"
+      - "examples/**"
+      - "external/cpp/**"
+      - "src/**"
+      - "tests/**"
+      - "worker/src/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpp-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows MSVC (${{ matrix.name }})
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            build-dir: build/default
+            build-examples: "ON"
+          - name: no-examples
+            build-dir: build/no-examples
+            build-examples: "OFF"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure CMake
+        shell: pwsh
+        run: >
+          cmake -S . -B "${{ matrix.build-dir }}"
+          -G "Visual Studio 17 2022" -A x64
+          -DQWEN_TTS_BRIDGE_BUILD_EXAMPLES=${{ matrix.build-examples }}
+          -DQWEN_TTS_BRIDGE_BUILD_TESTS=ON
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build "${{ matrix.build-dir }}" --config Release --parallel
+
+      - name: Run tests
+        shell: pwsh
+        run: ctest --test-dir "${{ matrix.build-dir }}" -C Release --output-on-failure
