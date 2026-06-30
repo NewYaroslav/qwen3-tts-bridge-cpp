@@ -501,10 +501,50 @@ logging_setup.py
 Keep the Python worker source split by subdomain, the same way as the C++ side.
 Do not grow a monolithic `protocol.py`.
 
+The worker is an installable Python package that lives under:
+
+```text
+worker/src/qwen_tts_bridge_worker/
+```
+
+Do not make tests import worker modules by mutating `sys.path`. Prefer running
+Python tests against an editable install, or set `PYTHONPATH=worker/src` only in
+the test runner or subprocess harness when an editable install is not available.
+
+Follow normal Python style:
+
+- use PEP 8 naming: `PascalCase` classes, `snake_case` functions and variables,
+  `UPPER_SNAKE_CASE` constants;
+- keep imports grouped as standard library, third-party packages, then project
+  imports;
+- use type hints on public and cross-module functions;
+- use concise docstrings for public modules, classes, and non-trivial
+  functions;
+- write comments for why something is necessary, not to restate the next line;
+- prefer plain functions over classes when there is no state, lifecycle,
+  polymorphism, or injected dependency;
+- prefer `dataclass(frozen=True, slots=True)` for immutable DTOs and validate
+  their invariants in `__post_init__`;
+- use `collections.abc` collection protocols for type hints where practical;
+- do not add a heavy DDD/Clean Architecture skeleton just for ceremony.
+
+Use layered boundaries without overengineering:
+
+```text
+CLI/config composition
+    -> server/application lifecycle
+        -> TtsEngine protocol
+        -> protocol framing/control mapping
+```
+
+The engine layer should not know wire-level protocol categories, JSON payload
+shape, stdin/stdout details, or CLI parsing. The server/protocol boundary maps
+engine-domain failures to protocol errors.
+
 Preferred protocol package layout:
 
 ```text
-worker/qwen_tts_bridge_worker/protocol/
+worker/src/qwen_tts_bridge_worker/protocol/
     __init__.py          umbrella import surface only
     data/                enums, constants, DTOs, and parse results
     framing/             QTB binary frame codec and incremental parser
