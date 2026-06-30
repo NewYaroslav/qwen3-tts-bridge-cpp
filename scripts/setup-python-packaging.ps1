@@ -2,7 +2,7 @@ param(
     [string]$Python = "py",
     [string[]]$PythonArgs,
     [switch]$UseVenv,
-    [string]$VenvPath = ".venv"
+    [string]$VenvPath = ".venv-packaging"
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +16,17 @@ if (-not $PSBoundParameters.ContainsKey("PythonArgs")) {
     }
     else {
         $PythonArgs = @()
+    }
+}
+
+function Invoke-ProjectPython {
+    param(
+        [string[]]$Arguments
+    )
+
+    & $Python @PythonArgs @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
     }
 }
 
@@ -37,41 +48,21 @@ function Resolve-VenvPython {
 if ($UseVenv) {
     $VenvPython = Resolve-VenvPython $VenvPath
     if (-not (Test-Path -LiteralPath $VenvPython)) {
-        $Message = "Python virtual environment was not found at $VenvPath. " +
-            "Run scripts/setup-python-dev.ps1 -UseVenv first."
-        throw $Message
+        Invoke-ProjectPython @("-m", "venv", $VenvPath)
     }
 
     $Python = $VenvPython
     $PythonArgs = @()
 }
 
-$WorkerSrc = Join-Path $RepoRoot "worker/src"
-if ([string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
-    $env:PYTHONPATH = $WorkerSrc
-}
-else {
-    $env:PYTHONPATH = "$WorkerSrc$([IO.Path]::PathSeparator)$env:PYTHONPATH"
-}
-
-function Invoke-ProjectPython {
-    param(
-        [string[]]$Arguments
-    )
-
-    & $Python @PythonArgs @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        exit $LASTEXITCODE
-    }
-}
-
 Invoke-ProjectPython @(
     "-m",
-    "ruff",
-    "check",
-    "worker/src",
-    "worker/packaging",
-    "tests/python"
+    "pip",
+    "--disable-pip-version-check",
+    "install",
+    "--no-warn-script-location",
+    "-r",
+    "worker/requirements-packaging.lock.txt",
+    "-e",
+    "worker"
 )
-Invoke-ProjectPython @("-m", "pyright")
-Invoke-ProjectPython @("-m", "unittest", "discover", "-s", "tests/python")

@@ -940,6 +940,21 @@ Windows x64
 Do not target Nuitka onefile mode initially. The model directory must remain
 external to the packaged worker.
 
+Use the project packaging scripts as the canonical starting point:
+
+```text
+scripts/setup-python-packaging.ps1
+scripts/package-worker.ps1
+worker/requirements-packaging.lock.txt
+```
+
+Keep packaging dependencies separate from Python development dependencies.
+`package-worker.ps1 -DryRun` should remain a cheap way to validate the generated
+Nuitka command without compiling. Packaging scripts default to `.venv-packaging`
+when `-UseVenv` is passed so Nuitka does not pollute the development `.venv`.
+Full PyTorch, CUDA, Qwen runtime validation, and transitive packaging locks
+belong in later packaging tests, not in the first packaging skeleton.
+
 Generated release layout should resemble:
 
 ```text
