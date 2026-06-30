@@ -1,4 +1,4 @@
-#include <qwen_tts_bridge/audio/SaveWavCallbacks.hpp>
+#include <qwen_tts_bridge/audio.hpp>
 
 #include <stdexcept>
 #include <utility>

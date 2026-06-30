@@ -3,8 +3,6 @@
 /// \file SaveWavCallbacks.hpp
 /// \brief Callback helpers for streaming PCM into a WAV writer.
 
-#include <qwen_tts_bridge/audio/WavWriter.hpp>
-
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -15,6 +13,8 @@
 #include <qwen_tts_bridge/client/ClientTypes.hpp>
 
 namespace qwen_tts_bridge::audio {
+
+class WavWriter;
 
 /// \struct SaveWavState
 /// \brief Shared completion state for asynchronous WAV output.
