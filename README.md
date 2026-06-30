@@ -454,6 +454,23 @@ The packaged-worker smoke test launches `qwen_tts_worker.exe`, speaks the real
 QTB stdin/stdout protocol, sends one mock synthesis request, verifies that at
 least one PCM frame is returned, and shuts the worker down gracefully.
 
+For a local packaged Qwen probe, install the vendored streaming fork into the
+packaging environment, force `qwen_tts` into the Nuitka dependency graph, and
+run the packaged executable against a real local model:
+
+```text
+.\scripts\setup-python-packaging.ps1 -UseVenv -InstallQwenFork
+.\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads -IncludeQwenPackage
+.\scripts\test-packaged-qwen-worker.ps1 -UseVenv -ModelPath models\<model-dir> -Speaker <speaker-name>
+```
+
+The Qwen probe uses the same QTB stdin/stdout protocol as the mock packaged
+smoke test, but it starts the packaged worker with the `qwen` backend and sends
+one real synthesis request. CustomVoice models require `-Speaker`; VoiceDesign
+models usually need an `-Instruction` instead. This probe is intentionally
+manual for now because it depends on local model files, CUDA/PyTorch runtime
+availability, and the selected Qwen model family.
+
 GitHub Actions also provides a manual `Packaged Worker Smoke` workflow. It is
 started with `workflow_dispatch`, builds the standalone worker on
 `windows-2022`, runs the same mock packaged-worker smoke test, and can upload

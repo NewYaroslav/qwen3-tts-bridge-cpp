@@ -946,6 +946,7 @@ Use the project packaging scripts as the canonical starting point:
 scripts/setup-python-packaging.ps1
 scripts/package-worker.ps1
 scripts/test-packaged-worker.ps1
+scripts/test-packaged-qwen-worker.ps1
 worker/requirements-packaging.lock.txt
 ```
 
@@ -954,8 +955,14 @@ Keep packaging dependencies separate from Python development dependencies.
 Nuitka command without compiling. Packaging scripts default to `.venv-packaging`
 when `-UseVenv` is passed so Nuitka does not pollute the development `.venv`.
 After a real package build, run `test-packaged-worker.ps1` against the mock
-backend before changing release layout. Full PyTorch, CUDA, Qwen runtime
-validation, and transitive packaging locks belong in later packaging tests.
+backend before changing release layout. For local real-model validation, install
+the vendored Qwen streaming fork into `.venv-packaging` with
+`setup-python-packaging.ps1 -InstallQwenFork`, package with
+`package-worker.ps1 -IncludeQwenPackage`, and run
+`test-packaged-qwen-worker.ps1` against a local model path. The Qwen packaged
+probe is manual because it depends on local model files, CUDA/PyTorch runtime
+availability, and the selected model family. Full transitive packaging locks
+remain later packaging work.
 The GitHub Actions workflow `Packaged Worker Smoke` is manual
 (`workflow_dispatch`) by design; do not move real Nuitka compilation into every
 PR check unless the build cost becomes acceptable.
