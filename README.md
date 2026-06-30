@@ -92,7 +92,7 @@ struct TtsRequest {
     std::uint64_t id = 0;
     std::string text;              // UTF-8 text
     std::string language = "auto";
-    std::string speaker = "default";
+    std::string speaker;           // optional per-request voice/speaker id
     std::string instruction;       // emotion, whispering, prosody, etc.
 };
 
@@ -156,7 +156,7 @@ The protocol should keep spoken text and style instruction separate:
   "message_type": "synthesize",
   "text": "I thought you were not coming.",
   "language": "English",
-  "speaker": "default",
+  "speaker": "Alice",
   "instruction": "Speak with relief, but keep a little resentment.",
   "output": {
     "sample_format": "s16le",
@@ -165,6 +165,11 @@ The protocol should keep spoken text and style instruction separate:
   }
 }
 ```
+
+`speaker` is an optional per-request voice override. If it is omitted or empty,
+the bridge does not select a voice on behalf of the application. A worker engine
+may use its own default, or it may reject the request when the selected model
+requires an explicit voice.
 
 Model families use this control differently:
 
@@ -350,6 +355,9 @@ package only when selected. The first adapter pass supports CustomVoice and
 VoiceDesign models through full-audio generation exposed as PCM chunks. Base
 voice-clone requests, reference audio, and true incremental Qwen streaming are
 planned follow-ups.
+
+CustomVoice models require an explicit per-request speaker name. Set
+`TtsRequest::speaker` in C++ or pass `--speaker <name>` to the WAV example.
 
 ## Dependencies
 

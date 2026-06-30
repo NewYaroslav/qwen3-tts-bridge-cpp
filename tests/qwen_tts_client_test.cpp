@@ -236,7 +236,6 @@ TtsRequest make_request(const std::string& text) {
     TtsRequest request;
     request.text = text;
     request.language = "English";
-    request.speaker = "default";
     request.instruction = "Speak calmly.";
     return request;
 }

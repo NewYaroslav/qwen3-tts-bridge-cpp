@@ -44,7 +44,7 @@ struct ProgramOptions {
     std::string output_path;
     std::string text;
     std::string language = "auto";
-    std::string speaker = "default";
+    std::string speaker;
     std::string instruction;
     std::uint32_t sample_rate = 24000;
     std::uint32_t channels = 1;
@@ -68,7 +68,7 @@ void print_usage(std::ostream& out, const char* executable_name) {
         << "  --output <path>                Output WAV path.\n"
         << "  --text <utf8>                  Text to synthesize.\n"
         << "  --language <name>              Request language, default: auto.\n"
-        << "  --speaker <name>               Request speaker, default: default.\n"
+        << "  --speaker <name>               Optional request speaker or voice name.\n"
         << "  --instruction <utf8>           Natural-language style instruction.\n"
         << "  --sample-rate <hz>             Requested sample rate, default: 24000.\n"
         << "  --channels <count>             Requested channel count, default: 1.\n"

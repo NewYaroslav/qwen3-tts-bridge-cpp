@@ -322,7 +322,7 @@ class StdioWorkerServer:
             return None
 
         language = message.get("language", "auto")
-        speaker = message.get("speaker", "default")
+        speaker = message.get("speaker", "")
         instruction = message.get("instruction", "")
         output_payload = message.get("output")
 

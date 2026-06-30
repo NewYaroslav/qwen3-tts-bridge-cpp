@@ -18,8 +18,9 @@ class _InnerModel:
 
 
 class _CustomVoiceModel:
-    def __init__(self) -> None:
+    def __init__(self, supported_speakers: list[str] | None = None) -> None:
         self.model = _InnerModel("custom_voice")
+        self._supported_speakers = supported_speakers or ["Alice"]
         self.last_call: dict[str, object] | None = None
 
     def generate_custom_voice(
@@ -38,7 +39,7 @@ class _CustomVoiceModel:
         return [[-1.0, 0.0, 1.0]], 24000
 
     def get_supported_speakers(self) -> list[str]:
-        return ["Alice"]
+        return self._supported_speakers
 
 
 class _VoiceDesignModel:
@@ -129,7 +130,7 @@ class QwenEngineTests(unittest.TestCase):
         )
         engine.load()
 
-        for speaker in ("default", ""):
+        for speaker in ("", "   "):
             with self.subTest(speaker=speaker):
                 with self.assertRaisesRegex(
                     EngineRequestValidationError,
@@ -142,6 +143,29 @@ class QwenEngineTests(unittest.TestCase):
                             speaker=speaker,
                         )
                     )
+
+    def test_custom_voice_allows_advertised_default_speaker(self) -> None:
+        fake_model = _CustomVoiceModel(supported_speakers=["default"])
+        engine = QwenTtsEngine(
+            QwenEngineConfig(model_path="models/qwen-custom"),
+            model_loader=lambda _config: fake_model,
+        )
+        engine.load()
+
+        chunks = list(
+            engine.synthesize_stream(
+                SynthesisRequest(
+                    request_id=1,
+                    text="Hello",
+                    speaker="default",
+                ),
+                threading.Event(),
+            )
+        )
+
+        self.assertEqual([struct.pack("<hhh", -32767, 0, 32767)], chunks)
+        assert fake_model.last_call is not None
+        self.assertEqual("default", fake_model.last_call["speaker"])
 
     def test_custom_voice_rejects_unsupported_speaker(self) -> None:
         engine = QwenTtsEngine(

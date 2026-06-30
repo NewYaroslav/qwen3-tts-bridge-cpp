@@ -232,7 +232,7 @@ The `synthesize` payload keeps spoken text separate from style instructions:
   "message_type": "synthesize",
   "text": "I thought you were not coming.",
   "language": "English",
-  "speaker": "default",
+  "speaker": "Alice",
   "instruction": "Speak with relief, but keep a little resentment.",
   "output": {
     "sample_format": "s16le",
@@ -241,6 +241,13 @@ The `synthesize` payload keeps spoken text separate from style instructions:
   }
 }
 ```
+
+`speaker` is optional. If it is omitted or an empty string, the client has not
+selected an explicit voice for that request. A worker may choose an
+engine-specific default or reject the request with `request_error` when the
+selected model requires a concrete speaker name. Clients should not use
+`"default"` as a universal magic value unless the model actually advertises a
+speaker with that exact name.
 
 `output` is the client's requested output format. If the worker cannot satisfy
 it, the worker must return:

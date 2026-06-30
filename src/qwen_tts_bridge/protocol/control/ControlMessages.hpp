@@ -85,7 +85,7 @@ struct HelloMessage {
 struct SynthesizeMessage {
     std::string text;
     std::string language = "auto";
-    std::string speaker = "default";
+    std::string speaker;
     std::string instruction;
     AudioFormat output;
 };
