@@ -21,8 +21,8 @@ class MockEngineConfig:
 
         if self.chunk_count <= 0:
             raise ValueError("mock.chunk_count must be greater than zero")
-        if self.chunk_duration_ms <= 0:
-            raise ValueError("mock.chunk_duration_ms must be greater than zero")
+        if self.chunk_duration_ms < 20:
+            raise ValueError("mock.chunk_duration_ms must be at least 20")
         if (
             not math.isfinite(self.chunk_delay_seconds)
             or self.chunk_delay_seconds < 0.0
@@ -67,4 +67,4 @@ class WorkerConfig:
         if self.output_queue_size <= 0:
             raise ValueError("output_queue_size must be greater than zero")
         if not isinstance(self.engine, (MockEngineConfig, QwenEngineConfig)):
-            raise ValueError("engine must be a known engine configuration")
+            raise TypeError("engine must be a known engine configuration")

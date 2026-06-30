@@ -25,9 +25,16 @@ class MockTtsEngine:
         chunk_duration_ms: int = 100,
         chunk_delay_seconds: float = 0.0,
     ) -> None:
-        self._chunk_count = max(1, chunk_count)
-        self._chunk_duration_ms = max(20, chunk_duration_ms)
-        self._chunk_delay_seconds = max(0.0, chunk_delay_seconds)
+        if chunk_count <= 0:
+            raise ValueError("chunk_count must be greater than zero")
+        if chunk_duration_ms < 20:
+            raise ValueError("chunk_duration_ms must be at least 20")
+        if not math.isfinite(chunk_delay_seconds) or chunk_delay_seconds < 0.0:
+            raise ValueError("chunk_delay_seconds must be finite and non-negative")
+
+        self._chunk_count = chunk_count
+        self._chunk_duration_ms = chunk_duration_ms
+        self._chunk_delay_seconds = chunk_delay_seconds
         self._loaded = False
 
     @property

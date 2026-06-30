@@ -63,6 +63,10 @@ class EngineFactoryTests(unittest.TestCase):
 
         self.assertIsInstance(config.engine, QwenEngineConfig)
 
+    def test_worker_config_rejects_unknown_engine_config_type(self) -> None:
+        with self.assertRaises(TypeError):
+            WorkerConfig(engine=object())  # type: ignore[arg-type]
+
     def test_qwen_config_rejects_empty_device_and_dtype(self) -> None:
         for qwen_config in (
             {"device": ""},
@@ -77,6 +81,10 @@ class EngineFactoryTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     MockEngineConfig(chunk_delay_seconds=value)
+
+    def test_reject_too_short_mock_chunk_duration(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least 20"):
+            MockEngineConfig(chunk_duration_ms=10)
 
 
 if __name__ == "__main__":

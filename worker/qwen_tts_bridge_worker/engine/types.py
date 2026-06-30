@@ -10,10 +10,10 @@ from typing import Any, Mapping
 class EngineCapabilities:
     """Feature flags supported by an engine."""
 
-    streaming: bool = True
-    cancellation: bool = True
-    instructions: bool = True
-    voice_clone: bool = False
+    streaming: bool
+    cancellation: bool
+    instructions: bool
+    voice_clone: bool
 
 
 @dataclass(frozen=True, slots=True)
