@@ -1,0 +1,5 @@
+# Direct Python development tools.
+#
+# Keep runtime worker dependencies separate from development-only checks.
+ruff==0.15.20
+pyright==1.1.411

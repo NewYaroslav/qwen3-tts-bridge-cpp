@@ -1,0 +1,8 @@
+# Locked Python development tools used by repository checks.
+#
+# This file intentionally includes direct and transitive packages. Update it
+# together with worker/requirements-dev.in after validating Ruff and Pyright.
+nodeenv==1.10.0
+pyright==1.1.411
+ruff==0.15.20
+typing_extensions==4.15.0
