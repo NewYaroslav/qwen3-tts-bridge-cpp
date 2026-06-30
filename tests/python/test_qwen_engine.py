@@ -5,7 +5,7 @@ import unittest
 from qwen_tts_bridge_worker.config import QwenEngineConfig
 from qwen_tts_bridge_worker.engine import (
     AudioFormat,
-    QwenEngineError,
+    EngineRequestValidationError,
     QwenTtsEngine,
     SynthesisRequest,
     UnsupportedAudioFormatError,
@@ -36,6 +36,9 @@ class _CustomVoiceModel:
             "instruct": instruct,
         }
         return [[-1.0, 0.0, 1.0]], 24000
+
+    def get_supported_speakers(self) -> list[str]:
+        return ["Alice"]
 
 
 class _VoiceDesignModel:
@@ -109,6 +112,7 @@ class QwenEngineTests(unittest.TestCase):
                     request_id=1,
                     text="Hello",
                     language="auto",
+                    speaker="Alice",
                 ),
                 threading.Event(),
             )
@@ -117,6 +121,46 @@ class QwenEngineTests(unittest.TestCase):
         self.assertIsNotNone(fake_model.last_call)
         assert fake_model.last_call is not None
         self.assertIsNone(fake_model.last_call["language"])
+
+    def test_custom_voice_requires_explicit_speaker(self) -> None:
+        engine = QwenTtsEngine(
+            QwenEngineConfig(model_path="models/qwen-custom"),
+            model_loader=lambda _config: _CustomVoiceModel(),
+        )
+        engine.load()
+
+        for speaker in ("default", ""):
+            with self.subTest(speaker=speaker):
+                with self.assertRaisesRegex(
+                    EngineRequestValidationError,
+                    "explicit speaker",
+                ):
+                    engine.validate_request(
+                        SynthesisRequest(
+                            request_id=1,
+                            text="Hello",
+                            speaker=speaker,
+                        )
+                    )
+
+    def test_custom_voice_rejects_unsupported_speaker(self) -> None:
+        engine = QwenTtsEngine(
+            QwenEngineConfig(model_path="models/qwen-custom"),
+            model_loader=lambda _config: _CustomVoiceModel(),
+        )
+        engine.load()
+
+        with self.assertRaisesRegex(
+            EngineRequestValidationError,
+            "does not support speaker",
+        ):
+            engine.validate_request(
+                SynthesisRequest(
+                    request_id=1,
+                    text="Hello",
+                    speaker="Bob",
+                )
+            )
 
     def test_voice_design_uses_instruction_as_instruct(self) -> None:
         fake_model = _VoiceDesignModel()
@@ -148,6 +192,19 @@ class QwenEngineTests(unittest.TestCase):
             fake_model.last_call,
         )
 
+    def test_voice_design_requires_instruction(self) -> None:
+        engine = QwenTtsEngine(
+            QwenEngineConfig(model_path="models/qwen-voice-design"),
+            model_loader=lambda _config: _VoiceDesignModel(),
+        )
+        engine.load()
+
+        with self.assertRaisesRegex(
+            EngineRequestValidationError,
+            "requires an instruction",
+        ):
+            engine.validate_request(SynthesisRequest(request_id=1, text="Hello"))
+
     def test_base_voice_clone_is_not_wired_yet(self) -> None:
         engine = QwenTtsEngine(
             QwenEngineConfig(model_path="models/qwen-base"),
@@ -155,12 +212,9 @@ class QwenEngineTests(unittest.TestCase):
         )
         engine.load()
 
-        with self.assertRaisesRegex(QwenEngineError, "voice-clone"):
-            list(
-                engine.synthesize_stream(
-                    SynthesisRequest(request_id=1, text="Hello"),
-                    threading.Event(),
-                )
+        with self.assertRaisesRegex(EngineRequestValidationError, "voice-clone"):
+            engine.validate_request(
+                SynthesisRequest(request_id=1, text="Hello"),
             )
 
     def test_unsupported_audio_format_is_rejected(self) -> None:

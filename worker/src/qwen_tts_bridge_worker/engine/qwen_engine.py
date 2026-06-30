@@ -18,6 +18,7 @@ from qwen_tts_bridge_worker.config import QwenEngineConfig
 from qwen_tts_bridge_worker.engine.types import (
     AudioFormat,
     EngineCapabilities,
+    EngineRequestValidationError,
     SynthesisRequest,
     UnsupportedAudioFormatError,
 )
@@ -71,10 +72,35 @@ class QwenTtsEngine:
     ) -> None:
         """Validate output format support."""
 
-        if request.output == AudioFormat.default():
+        if request.output != AudioFormat.default():
+            raise UnsupportedAudioFormatError(
+                "qwen engine currently supports only s16le 24000 Hz mono"
+            )
+
+        model = self._require_model()
+        model_type = _qwen_model_type(model)
+        if model_type == "custom_voice":
+            _validate_custom_voice_request(model, request)
             return
-        raise UnsupportedAudioFormatError(
-            "qwen engine currently supports only s16le 24000 Hz mono"
+
+        if model_type == "voice_design":
+            if not request.instruction.strip():
+                raise EngineRequestValidationError(
+                    "missing_required_field",
+                    "qwen voice design model requires an instruction",
+                )
+            return
+
+        if model_type == "base":
+            raise EngineRequestValidationError(
+                "missing_required_field",
+                "qwen base voice-clone models require reference audio; "
+                "the bridge protocol does not support voice clone requests yet",
+            )
+
+        raise EngineRequestValidationError(
+            "invalid_field_type",
+            f"unsupported qwen tts_model_type: {model_type or 'unknown'}",
         )
 
     def synthesize_stream(
@@ -128,7 +154,7 @@ class QwenTtsEngine:
             return model.generate_custom_voice(
                 text=request.text,
                 language=language,
-                speaker=request.speaker or "default",
+                speaker=request.speaker,
                 instruct=request.instruction or None,
             )
 
@@ -140,9 +166,10 @@ class QwenTtsEngine:
             )
 
         if model_type == "base":
-            raise QwenEngineError(
+            raise EngineRequestValidationError(
+                "missing_required_field",
                 "qwen base voice-clone models require reference audio; "
-                "the bridge adapter does not support voice clone requests yet"
+                "the bridge protocol does not support voice clone requests yet",
             )
 
         raise QwenEngineError(
@@ -232,6 +259,45 @@ def _qwen_language(language: str) -> str | None:
     if language.lower() == "auto":
         return None
     return language
+
+
+def _validate_custom_voice_request(
+    model: Any,
+    request: SynthesisRequest,
+) -> None:
+    if _is_placeholder_speaker(request.speaker):
+        raise EngineRequestValidationError(
+            "missing_required_field",
+            "qwen custom voice model requires an explicit speaker",
+        )
+
+    supported_speakers = _supported_speakers(model)
+    if supported_speakers is None:
+        return
+
+    if request.speaker.lower() not in supported_speakers:
+        raise EngineRequestValidationError(
+            "invalid_field_type",
+            f"qwen custom voice model does not support speaker: {request.speaker}",
+        )
+
+
+def _is_placeholder_speaker(speaker: str) -> bool:
+    return not speaker.strip() or speaker.strip().lower() == "default"
+
+
+def _supported_speakers(model: Any) -> set[str] | None:
+    get_supported_speakers = getattr(model, "get_supported_speakers", None)
+    if not callable(get_supported_speakers):
+        return None
+
+    speakers = get_supported_speakers()
+    if speakers is None:
+        return None
+    if not isinstance(speakers, (list, tuple, set)):
+        return None
+
+    return {str(speaker).lower() for speaker in speakers}
 
 
 def _float_audio_to_s16le(audio: Any) -> bytes:
