@@ -9,6 +9,7 @@ on:
       - "scripts/package-worker.ps1"
       - "scripts/setup-python-dev.ps1"
       - "scripts/setup-python-packaging.ps1"
+      - "scripts/test-packaged-worker.ps1"
       - "tests/python/**"
       - "worker/**"
   push:
@@ -21,6 +22,7 @@ on:
       - "scripts/package-worker.ps1"
       - "scripts/setup-python-dev.ps1"
       - "scripts/setup-python-packaging.ps1"
+      - "scripts/test-packaged-worker.ps1"
       - "tests/python/**"
       - "worker/**"
 
