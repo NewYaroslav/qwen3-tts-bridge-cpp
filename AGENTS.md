@@ -236,6 +236,19 @@ Recommended Python dependency files:
 ```text
 worker/requirements.in
 worker/requirements.lock.txt
+worker/requirements-dev.in
+worker/requirements-dev.lock.txt
+```
+
+Development-only tools such as Ruff and Pyright belong in
+`worker/requirements-dev.in` and `worker/requirements-dev.lock.txt`. Keep
+runtime worker dependencies separate from dev tooling.
+
+Use the project scripts for Python tooling checks when they are available:
+
+```text
+scripts/setup-python-dev.ps1
+scripts/check-python.ps1
 ```
 
 Do not store an installed Python runtime in `external/python/`. The packaged

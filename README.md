@@ -317,6 +317,17 @@ py -3 -m pip install -e worker
 py -3 -m unittest discover -s tests/python
 ```
 
+Python development checks use locked tool versions:
+
+```text
+.\scripts\setup-python-dev.ps1
+.\scripts\check-python.ps1
+```
+
+The setup script installs `worker/requirements-dev.lock.txt` and the worker
+package in editable mode. The check script runs Ruff, Pyright, and Python
+unittests with `worker/src` available on `PYTHONPATH`.
+
 ## Dependencies
 
 All source dependencies are managed as git submodules and pinned to exact
