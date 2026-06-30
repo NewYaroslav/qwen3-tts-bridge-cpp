@@ -109,6 +109,13 @@ class _StreamingWrapperModel:
 
 
 class QwenEngineTests(unittest.TestCase):
+    def test_capabilities_are_conservative_before_load(self) -> None:
+        engine = QwenTtsEngine(QwenEngineConfig(model_path="models/qwen-custom"))
+
+        self.assertFalse(engine.capabilities.streaming)
+        self.assertFalse(engine.capabilities.cancellation)
+        self.assertTrue(engine.capabilities.instructions)
+
     def test_custom_voice_generation_is_mapped_to_pcm(self) -> None:
         fake_model = _CustomVoiceModel()
         engine = QwenTtsEngine(
@@ -140,6 +147,16 @@ class QwenEngineTests(unittest.TestCase):
             },
             fake_model.last_call,
         )
+
+    def test_full_audio_fallback_does_not_advertise_streaming(self) -> None:
+        engine = QwenTtsEngine(
+            QwenEngineConfig(model_path="models/qwen-custom"),
+            model_loader=lambda _config: _CustomVoiceModel(),
+        )
+        engine.load()
+
+        self.assertFalse(engine.capabilities.streaming)
+        self.assertFalse(engine.capabilities.cancellation)
 
     def test_auto_language_becomes_model_default_language(self) -> None:
         fake_model = _CustomVoiceModel()
@@ -219,6 +236,9 @@ class QwenEngineTests(unittest.TestCase):
             model_loader=lambda _config: fake_model,
         )
         engine.load()
+
+        self.assertTrue(engine.capabilities.streaming)
+        self.assertTrue(engine.capabilities.cancellation)
 
         chunks = list(
             engine.synthesize_stream(

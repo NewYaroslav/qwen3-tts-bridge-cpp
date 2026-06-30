@@ -51,9 +51,13 @@ class QwenTtsEngine:
     def capabilities(self) -> EngineCapabilities:
         """Return capabilities exposed by the Qwen adapter."""
 
+        streaming = (
+            self._model is not None
+            and _supports_qwen_streaming(self._model)
+        )
         return EngineCapabilities(
-            streaming=True,
-            cancellation=True,
+            streaming=streaming,
+            cancellation=streaming,
             instructions=True,
             voice_clone=False,
         )
@@ -121,7 +125,13 @@ class QwenTtsEngine:
         audio_stream = self._generate_audio_stream(model, request)
         close_stream = getattr(audio_stream, "close", None)
         try:
-            for wav, sample_rate in audio_stream:
+            iterator = iter(audio_stream)
+            while not cancel_event.is_set():
+                try:
+                    wav, sample_rate = next(iterator)
+                except StopIteration:
+                    break
+
                 if cancel_event.is_set():
                     return
                 if sample_rate != request.output.sample_rate:
@@ -281,6 +291,29 @@ def _qwen_language(language: str) -> str | None:
     return language
 
 
+def _supports_qwen_streaming(model: Any) -> bool:
+    model_type = _qwen_model_type(model)
+    if model_type == "custom_voice":
+        if callable(getattr(model, "stream_generate_custom_voice", None)):
+            return True
+        return _supports_qwen_stream_generate_pcm(model)
+
+    if model_type == "voice_design":
+        if callable(getattr(model, "stream_generate_voice_design", None)):
+            return True
+        return _supports_qwen_stream_generate_pcm(model)
+
+    return False
+
+
+def _supports_qwen_stream_generate_pcm(model: Any) -> bool:
+    inner_model = getattr(model, "model", None)
+    return (
+        callable(getattr(inner_model, "stream_generate_pcm", None))
+        and _has_qwen_stream_helpers(model)
+    )
+
+
 def _qwen_stream_generate_audio(
     model: Any,
     request: SynthesisRequest,
@@ -345,7 +378,10 @@ def _qwen_stream_generate_pcm(
 ) -> Iterable[tuple[Any, int]] | None:
     inner_model = getattr(model, "model", None)
     stream_generate_pcm = getattr(inner_model, "stream_generate_pcm", None)
-    if not callable(stream_generate_pcm) or not _has_qwen_stream_helpers(model):
+    if (
+        not callable(stream_generate_pcm)
+        or not _supports_qwen_stream_generate_pcm(model)
+    ):
         return None
 
     input_ids = model._tokenize_texts([model._build_assistant_text(text)])
