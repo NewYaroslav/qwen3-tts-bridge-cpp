@@ -87,6 +87,12 @@ class PackagedWorkerHarness:
 
             if predicate is None or predicate(frame):
                 return frame
+            if frame.header.frame_type == FrameType.ERROR_JSON:
+                payload = _json_payload(frame)
+                raise RuntimeError(
+                    "packaged worker returned error frame while waiting for "
+                    f"expected frame: {payload}"
+                )
 
     def wait(self) -> int:
         """Wait for the process and close pipes."""
@@ -195,21 +201,38 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("worker_executable", type=Path)
+    parser.add_argument("--engine", choices=("mock", "qwen"), default="mock")
+    parser.add_argument("--model-path")
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--dtype", default="auto")
+    parser.add_argument("--attn-implementation", default="")
     parser.add_argument("--timeout-seconds", type=float, default=20.0)
     parser.add_argument("--mock-chunks", type=int, default=1)
+    parser.add_argument("--text", default="Packaged worker smoke test.")
+    parser.add_argument("--language", default="auto")
+    parser.add_argument("--speaker", default="")
+    parser.add_argument("--instruction", default="")
     args = parser.parse_args()
 
     worker_executable = args.worker_executable.resolve()
     if not worker_executable.is_file():
         parser.error(f"worker executable was not found: {worker_executable}")
+    if args.engine == "qwen" and not args.model_path:
+        parser.error("--model-path is required for --engine qwen")
 
     harness = PackagedWorkerHarness(
         worker_executable=worker_executable,
-        args=["mock", "--chunks", str(args.mock_chunks)],
+        args=_worker_args(args),
         timeout_seconds=args.timeout_seconds,
     )
     try:
-        _exercise_mock_worker(harness)
+        _exercise_worker(
+            harness,
+            text=args.text,
+            language=args.language,
+            speaker=args.speaker,
+            instruction=args.instruction,
+        )
     finally:
         harness.close()
 
@@ -217,7 +240,37 @@ def main() -> int:
     return 0
 
 
-def _exercise_mock_worker(harness: PackagedWorkerHarness) -> None:
+def _worker_args(args: argparse.Namespace) -> list[str]:
+    engine = str(args.engine)
+    if engine == "mock":
+        return ["mock", "--chunks", str(args.mock_chunks)]
+
+    model_path = args.model_path
+    if not isinstance(model_path, str) or not model_path:
+        raise RuntimeError("--model-path is required for --engine qwen")
+
+    worker_args = [
+        "qwen",
+        "--model-path",
+        model_path,
+        "--device",
+        str(args.device),
+        "--dtype",
+        str(args.dtype),
+    ]
+    attn_implementation = str(args.attn_implementation)
+    if attn_implementation:
+        worker_args.extend(["--attn-implementation", attn_implementation])
+    return worker_args
+
+
+def _exercise_worker(
+    harness: PackagedWorkerHarness,
+    text: str,
+    language: str,
+    speaker: str,
+    instruction: str,
+) -> None:
     harness.send_control(
         0,
         {
@@ -233,10 +286,12 @@ def _exercise_mock_worker(harness: PackagedWorkerHarness) -> None:
 
     harness.send_control(
         1,
-        {
-            "message_type": "synthesize",
-            "text": "Packaged worker smoke test.",
-        },
+        _synthesize_payload(
+            text=text,
+            language=language,
+            speaker=speaker,
+            instruction=instruction,
+        ),
     )
 
     harness.read_frame(lambda frame: _is_control_message(frame, "queued", 1))
@@ -254,6 +309,29 @@ def _exercise_mock_worker(harness: PackagedWorkerHarness) -> None:
     _expect(exit_code == 0, f"packaged worker exited with code {exit_code}")
 
 
+def _synthesize_payload(
+    text: str,
+    language: str,
+    speaker: str,
+    instruction: str,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "message_type": "synthesize",
+        "text": text,
+        "language": language,
+        "output": {
+            "sample_format": "s16le",
+            "sample_rate": 24000,
+            "channels": 1,
+        },
+    }
+    if speaker:
+        payload["speaker"] = speaker
+    if instruction:
+        payload["instruction"] = instruction
+    return payload
+
+
 def _is_control_message(
     frame: Frame,
     message_type: str,
@@ -267,6 +345,10 @@ def _is_control_message(
 
 
 def _control_payload(frame: Frame) -> dict[str, object]:
+    return _json_payload(frame)
+
+
+def _json_payload(frame: Frame) -> dict[str, object]:
     return json.loads(frame.payload.decode("utf-8"))
 
 
