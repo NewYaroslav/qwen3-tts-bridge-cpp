@@ -16,10 +16,11 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
+$RequiredPythonVersion = "3.11"
 
 if (-not $PSBoundParameters.ContainsKey("PythonArgs")) {
     if ($Python -eq "py") {
-        $PythonArgs = @("-3")
+        $PythonArgs = @("-3.11")
     }
     else {
         $PythonArgs = @()
@@ -80,6 +81,18 @@ function Invoke-ProjectPython {
     }
 }
 
+function Assert-PackagingPythonVersion {
+    $VersionOutput = & $Python @PythonArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to run packaging Python. Install Python $RequiredPythonVersion or pass -Python/-PythonArgs explicitly."
+    }
+
+    $Version = ($VersionOutput | Select-Object -First 1).Trim()
+    if ($Version -ne $RequiredPythonVersion) {
+        throw "Packaging Python must be $RequiredPythonVersion; selected Python is $Version. Recreate $VenvPath with Python $RequiredPythonVersion or pass -Python/-PythonArgs explicitly."
+    }
+}
+
 function Format-CommandLine {
     param(
         [string]$Executable,
@@ -106,6 +119,8 @@ if ($UseVenv) {
     $Python = $VenvPython
     $PythonArgs = @()
 }
+
+Assert-PackagingPythonVersion
 
 $PackageRoot = Resolve-RepoPath $OutputRoot
 $NuitkaOutputRoot = Resolve-RepoPath $NuitkaWorkRoot

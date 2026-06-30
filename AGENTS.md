@@ -954,6 +954,10 @@ Keep packaging dependencies separate from Python development dependencies.
 `package-worker.ps1 -DryRun` should remain a cheap way to validate the generated
 Nuitka command without compiling. Packaging scripts default to `.venv-packaging`
 when `-UseVenv` is passed so Nuitka does not pollute the development `.venv`.
+Packaging scripts intentionally require Python 3.11 and default to `py -3.11`;
+do not silently package with newer experimental Python versions. If a local
+`.venv-packaging` was created with the wrong interpreter, remove and recreate it
+instead of debugging Nuitka failures from an unsupported Python runtime.
 After a real package build, run `test-packaged-worker.ps1` against the mock
 backend before changing release layout. For local real-model validation, install
 the vendored Qwen streaming fork into `.venv-packaging` with

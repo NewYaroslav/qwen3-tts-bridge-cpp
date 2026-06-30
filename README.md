@@ -429,8 +429,11 @@ The initial worker packaging scaffold uses a separate pinned tool environment:
 .\scripts\test-packaged-worker.ps1 -UseVenv
 ```
 
-With `-UseVenv`, packaging scripts default to `.venv-packaging` so Nuitka and
-future packaging-only packages do not pollute the development `.venv`.
+Packaging scripts require Python 3.11 by default and call `py -3.11` when no
+explicit interpreter is provided. With `-UseVenv`, they default to
+`.venv-packaging` so Nuitka and future packaging-only packages do not pollute
+the development `.venv`. If an existing `.venv-packaging` was created with a
+different Python version, remove it and rerun setup with Python 3.11.
 
 The dry run prints the exact Nuitka command without compiling. A real run stages
 the worker into:

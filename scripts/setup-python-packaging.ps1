@@ -11,10 +11,11 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
+$RequiredPythonVersion = "3.11"
 
 if (-not $PSBoundParameters.ContainsKey("PythonArgs")) {
     if ($Python -eq "py") {
-        $PythonArgs = @("-3")
+        $PythonArgs = @("-3.11")
     }
     else {
         $PythonArgs = @()
@@ -29,6 +30,29 @@ function Invoke-ProjectPython {
     & $Python @PythonArgs @Arguments
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
+    }
+}
+
+function Assert-PackagingPythonVersion {
+    param(
+        [string]$Context
+    )
+
+    $VersionOutput = & $Python @PythonArgs -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to run $Context. Install Python $RequiredPythonVersion or pass -Python/-PythonArgs explicitly."
+    }
+
+    $Version = ($VersionOutput | Select-Object -First 1).Trim()
+    if ($Version -ne $RequiredPythonVersion) {
+        $Message = "$Context must use Python $RequiredPythonVersion; selected Python is $Version. "
+        if ($UseVenv) {
+            $Message += "Remove $VenvPath and rerun setup with Python $RequiredPythonVersion, or pass -Python/-PythonArgs explicitly."
+        }
+        else {
+            $Message += "Pass -Python/-PythonArgs explicitly if needed."
+        }
+        throw $Message
     }
 }
 
@@ -62,12 +86,15 @@ function Resolve-RepoPath {
 if ($UseVenv) {
     $VenvPython = Resolve-VenvPython $VenvPath
     if (-not (Test-Path -LiteralPath $VenvPython)) {
+        Assert-PackagingPythonVersion "Base Python for packaging venv"
         Invoke-ProjectPython @("-m", "venv", $VenvPath)
     }
 
     $Python = $VenvPython
     $PythonArgs = @()
 }
+
+Assert-PackagingPythonVersion "Packaging Python"
 
 Invoke-ProjectPython @(
     "-m",
