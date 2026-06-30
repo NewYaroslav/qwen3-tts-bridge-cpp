@@ -1,7 +1,7 @@
 #pragma once
 
 /// \file SaveWavCallbacks.hpp
-/// \brief Callback helpers shared by the save-wav example and its tests.
+/// \brief Callback helpers for streaming PCM into a WAV writer.
 
 #include <qwen_tts_bridge/audio/WavWriter.hpp>
 
@@ -17,7 +17,7 @@
 namespace qwen_tts_bridge::audio {
 
 /// \struct SaveWavState
-/// \brief Shared completion state for the async save-wav example.
+/// \brief Shared completion state for asynchronous WAV output.
 struct SaveWavState {
     std::mutex mutex;
     std::mutex writer_mutex;
@@ -29,7 +29,7 @@ struct SaveWavState {
     std::uint64_t audio_bytes = 0;
 };
 
-/// \brief Marks the example request as terminal and wakes waiters.
+/// \brief Marks the WAV output operation as terminal and wakes waiters.
 void mark_save_wav_finished(
     SaveWavState& state,
     bool success,
