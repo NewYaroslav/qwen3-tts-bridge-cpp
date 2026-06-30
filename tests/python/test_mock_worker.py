@@ -246,7 +246,10 @@ class MockWorkerTests(unittest.TestCase):
         started_payload = control_payload(started)
         self.assertEqual("started", started_payload["message_type"])
         self.assertEqual(1, started.header.request_id)
-        self.assertEqual(24000, started_payload["audio_format"]["sample_rate"])
+        audio_format = started_payload["audio_format"]
+        self.assertIsInstance(audio_format, dict)
+        assert isinstance(audio_format, dict)
+        self.assertEqual(24000, audio_format["sample_rate"])
 
         self.assertEqual(FrameType.AUDIO_PCM, first_audio.header.frame_type)
         self.assertEqual(FrameType.AUDIO_PCM, second_audio.header.frame_type)

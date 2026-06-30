@@ -10,3 +10,7 @@ select = ["E", "F", "I", "B"]
 include = ["worker/src", "tests/python"]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
+
+[[tool.pyright.executionEnvironments]]
+root = "."
+extraPaths = ["worker/src"]

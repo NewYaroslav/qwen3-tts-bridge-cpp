@@ -1,7 +1,11 @@
 import math
 import unittest
 
-from qwen_tts_bridge_worker.cli import build_engine_config, build_parser
+from qwen_tts_bridge_worker.cli import (
+    build_engine_config,
+    build_parser,
+    build_worker_config,
+)
 from qwen_tts_bridge_worker.config import (
     MockEngineConfig,
     QwenEngineConfig,
@@ -24,6 +28,7 @@ class EngineFactoryTests(unittest.TestCase):
         config = build_engine_config(args)
 
         self.assertIsInstance(config, MockEngineConfig)
+        assert isinstance(config, MockEngineConfig)
         self.assertEqual(2, config.chunk_count)
         self.assertEqual(40, config.chunk_duration_ms)
 
@@ -33,6 +38,61 @@ class EngineFactoryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(EngineFactoryError, "not implemented"):
             create_engine(build_engine_config(args))
+
+    def test_legacy_mock_options_still_work(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--mock", "--mock-chunks", "9"])
+
+        config = build_engine_config(args)
+
+        self.assertIsInstance(config, MockEngineConfig)
+        assert isinstance(config, MockEngineConfig)
+        self.assertEqual(9, config.chunk_count)
+
+    def test_legacy_mock_options_cannot_be_mixed_with_subcommand(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--mock-chunks", "9", "mock"])
+
+        with self.assertRaisesRegex(ValueError, "legacy engine flags"):
+            build_engine_config(args)
+
+    def test_legacy_qwen_options_cannot_be_mixed_with_subcommand(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--device", "cpu", "qwen"])
+
+        with self.assertRaisesRegex(ValueError, "legacy engine flags"):
+            build_engine_config(args)
+
+    def test_server_options_work_before_subcommand(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            ["--worker-version", "0.3.0", "--output-queue-size", "256", "mock"]
+        )
+
+        config = build_worker_config(args)
+
+        self.assertEqual("0.3.0", config.worker_version)
+        self.assertEqual(256, config.output_queue_size)
+
+    def test_server_options_work_after_subcommand(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            ["mock", "--worker-version", "0.3.0", "--output-queue-size", "256"]
+        )
+
+        config = build_worker_config(args)
+
+        self.assertEqual("0.3.0", config.worker_version)
+        self.assertEqual(256, config.output_queue_size)
+
+    def test_server_options_cannot_be_repeated_around_subcommand(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            ["--output-queue-size", "256", "mock", "--output-queue-size", "512"]
+        )
+
+        with self.assertRaisesRegex(ValueError, "output-queue-size"):
+            build_worker_config(args)
 
     def test_create_mock_engine_from_config(self) -> None:
         config = MockEngineConfig(

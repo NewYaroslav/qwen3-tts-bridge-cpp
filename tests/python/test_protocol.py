@@ -2,11 +2,13 @@ import struct
 import unittest
 
 from qwen_tts_bridge_worker.protocol import (
-    FrameHeader,
     MIN_HEADER_SIZE,
     PROTOCOL_VERSION,
+    Frame,
+    FrameHeader,
     FrameParser,
     FrameType,
+    ParseResult,
     ParseStatus,
     ProtocolError,
     encode_frame,
@@ -22,6 +24,11 @@ def _patch_u32(frame: bytearray, offset: int, value: int) -> None:
     frame[offset : offset + 4] = struct.pack("<I", value)
 
 
+def _require_frame(result: ParseResult) -> Frame:
+    assert result.frame is not None
+    return result.frame
+
+
 class ProtocolFrameTests(unittest.TestCase):
     def test_round_trip_control_frame(self) -> None:
         payload = b'{"message_type":"ping","sequence":1}'
@@ -34,13 +41,14 @@ class ProtocolFrameTests(unittest.TestCase):
         self.assertEqual(ParseStatus.FRAME_READY, result.status)
         self.assertEqual(ProtocolError.NONE, result.error)
         self.assertIsNotNone(result.frame)
-        self.assertEqual(PROTOCOL_VERSION, result.frame.header.protocol_version)
-        self.assertEqual(MIN_HEADER_SIZE, result.frame.header.header_size)
-        self.assertEqual(FrameType.CONTROL_JSON, result.frame.header.frame_type)
-        self.assertEqual(0, result.frame.header.flags)
-        self.assertEqual(len(payload), result.frame.header.payload_size)
-        self.assertEqual(0, result.frame.header.request_id)
-        self.assertEqual(payload, result.frame.payload)
+        frame = _require_frame(result)
+        self.assertEqual(PROTOCOL_VERSION, frame.header.protocol_version)
+        self.assertEqual(MIN_HEADER_SIZE, frame.header.header_size)
+        self.assertEqual(FrameType.CONTROL_JSON, frame.header.frame_type)
+        self.assertEqual(0, frame.header.flags)
+        self.assertEqual(len(payload), frame.header.payload_size)
+        self.assertEqual(0, frame.header.request_id)
+        self.assertEqual(payload, frame.payload)
         self.assertEqual(0, parser.buffered_size)
 
     def test_fragmented_frame(self) -> None:
@@ -58,8 +66,9 @@ class ProtocolFrameTests(unittest.TestCase):
 
         self.assertEqual(ParseStatus.FRAME_READY, result.status)
         self.assertIsNotNone(result.frame)
-        self.assertEqual(42, result.frame.header.request_id)
-        self.assertEqual(payload, result.frame.payload)
+        frame = _require_frame(result)
+        self.assertEqual(42, frame.header.request_id)
+        self.assertEqual(payload, frame.payload)
 
     def test_multiple_frames_in_one_read(self) -> None:
         first_payload = b'{"message_type":"ping","sequence":1}'
@@ -75,12 +84,14 @@ class ProtocolFrameTests(unittest.TestCase):
         first = parser.parse_next()
         self.assertEqual(ParseStatus.FRAME_READY, first.status)
         self.assertIsNotNone(first.frame)
-        self.assertEqual(first_payload, first.frame.payload)
+        first_frame = _require_frame(first)
+        self.assertEqual(first_payload, first_frame.payload)
 
         second = parser.parse_next()
         self.assertEqual(ParseStatus.FRAME_READY, second.status)
         self.assertIsNotNone(second.frame)
-        self.assertEqual(second_payload, second.frame.payload)
+        second_frame = _require_frame(second)
+        self.assertEqual(second_payload, second_frame.payload)
 
         empty = parser.parse_next()
         self.assertEqual(ParseStatus.NEED_MORE_DATA, empty.status)
@@ -98,8 +109,9 @@ class ProtocolFrameTests(unittest.TestCase):
 
         self.assertEqual(ParseStatus.FRAME_READY, result.status)
         self.assertIsNotNone(result.frame)
-        self.assertEqual(28, result.frame.header.header_size)
-        self.assertEqual(payload, result.frame.payload)
+        frame = _require_frame(result)
+        self.assertEqual(28, frame.header.header_size)
+        self.assertEqual(payload, frame.payload)
 
     def test_reject_bad_magic(self) -> None:
         encoded = bytearray(encode_frame(FrameType.CONTROL_JSON, 0, b"{}"))
