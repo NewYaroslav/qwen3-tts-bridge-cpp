@@ -24,10 +24,18 @@ on:
       - "tests/**"
       - "worker/src/**"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: cpp-checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows:
     name: Windows MSVC (${{ matrix.name }})
     runs-on: windows-2022
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
