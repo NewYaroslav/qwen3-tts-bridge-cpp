@@ -1,0 +1,43 @@
+name: Python Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/python-checks.yml"
+      - "pyproject.toml"
+      - "scripts/check-python.ps1"
+      - "scripts/setup-python-dev.ps1"
+      - "tests/python/**"
+      - "worker/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/python-checks.yml"
+      - "pyproject.toml"
+      - "scripts/check-python.ps1"
+      - "scripts/setup-python-dev.ps1"
+      - "tests/python/**"
+      - "worker/**"
+
+jobs:
+  python:
+    name: Python worker
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dev tooling
+        shell: pwsh
+        run: .\scripts\setup-python-dev.ps1 -Python python
+
+      - name: Run Python checks
+        shell: pwsh
+        run: .\scripts\check-python.ps1 -Python python

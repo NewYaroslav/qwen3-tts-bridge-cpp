@@ -251,6 +251,22 @@ scripts/setup-python-dev.ps1
 scripts/check-python.ps1
 ```
 
+For isolated local setup, pass `-UseVenv` to both scripts. In GitHub Actions,
+prefer the Python executable from `actions/setup-python`:
+
+```text
+scripts/setup-python-dev.ps1 -Python python
+scripts/check-python.ps1 -Python python
+```
+
+Future CI hardening notes:
+
+- Pin GitHub Actions by full commit SHA only when the project starts enforcing
+  a stricter supply-chain policy.
+- Do not prioritize Linux Python CI jobs while the project remains
+  Windows-first. Add Linux coverage later only if the worker is expected to be
+  developed or shipped cross-platform.
+
 Do not store an installed Python runtime in `external/python/`. The packaged
 runtime belongs to generated `dist/` output produced by Nuitka.
 
