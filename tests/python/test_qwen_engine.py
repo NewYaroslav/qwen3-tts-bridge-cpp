@@ -1,6 +1,7 @@
 import struct
 import threading
 import unittest
+from typing import Any
 
 from qwen_tts_bridge_worker.config import QwenEngineConfig
 from qwen_tts_bridge_worker.engine import (
@@ -64,6 +65,47 @@ class _VoiceDesignModel:
 class _BaseModel:
     def __init__(self) -> None:
         self.model = _InnerModel("base")
+
+
+class _StreamingInnerModel(_InnerModel):
+    def __init__(self, model_type: str) -> None:
+        super().__init__(model_type)
+        self.stream_calls: list[dict[str, object]] = []
+
+    def stream_generate_pcm(self, **kwargs: object) -> object:
+        self.stream_calls.append(dict(kwargs))
+        yield [-0.5], 24000
+        yield [0.5], 24000
+
+
+class _StreamingWrapperModel:
+    def __init__(
+        self,
+        model_type: str,
+        supported_speakers: list[str] | None = None,
+    ) -> None:
+        self.model = _StreamingInnerModel(model_type)
+        self._supported_speakers = supported_speakers
+        self.tokenized_texts: list[str] = []
+
+    def get_supported_speakers(self) -> list[str] | None:
+        return self._supported_speakers
+
+    def _build_assistant_text(self, text: str) -> str:
+        return f"assistant:{text}"
+
+    def _build_instruct_text(self, text: str) -> str:
+        return f"instruct:{text}"
+
+    def _tokenize_texts(self, texts: list[str]) -> list[str]:
+        self.tokenized_texts.extend(texts)
+        return [f"ids:{text}" for text in texts]
+
+    def generate_custom_voice(self, *args: Any, **kwargs: Any) -> object:
+        raise AssertionError("streaming path must not call generate_custom_voice")
+
+    def generate_voice_design(self, *args: Any, **kwargs: Any) -> object:
+        raise AssertionError("streaming path must not call generate_voice_design")
 
 
 class QwenEngineTests(unittest.TestCase):
@@ -167,6 +209,39 @@ class QwenEngineTests(unittest.TestCase):
         assert fake_model.last_call is not None
         self.assertEqual("default", fake_model.last_call["speaker"])
 
+    def test_custom_voice_uses_stream_generate_pcm(self) -> None:
+        fake_model = _StreamingWrapperModel(
+            "custom_voice",
+            supported_speakers=["Alice"],
+        )
+        engine = QwenTtsEngine(
+            QwenEngineConfig(model_path="models/qwen-custom"),
+            model_loader=lambda _config: fake_model,
+        )
+        engine.load()
+
+        chunks = list(
+            engine.synthesize_stream(
+                SynthesisRequest(
+                    request_id=1,
+                    text="Hello",
+                    language="English",
+                    speaker="Alice",
+                    instruction="Speak warmly.",
+                ),
+                threading.Event(),
+            )
+        )
+
+        self.assertEqual([struct.pack("<h", -16383), struct.pack("<h", 16383)], chunks)
+        self.assertEqual(1, len(fake_model.model.stream_calls))
+        stream_call = fake_model.model.stream_calls[0]
+        self.assertEqual(["English"], stream_call["languages"])
+        self.assertEqual(["Alice"], stream_call["speakers"])
+        self.assertIsNotNone(stream_call["instruct_ids"])
+        self.assertIn("assistant:Hello", fake_model.tokenized_texts)
+        self.assertIn("instruct:Speak warmly.", fake_model.tokenized_texts)
+
     def test_custom_voice_rejects_unsupported_speaker(self) -> None:
         engine = QwenTtsEngine(
             QwenEngineConfig(model_path="models/qwen-custom"),
@@ -215,6 +290,35 @@ class QwenEngineTests(unittest.TestCase):
             },
             fake_model.last_call,
         )
+
+    def test_voice_design_uses_stream_generate_pcm(self) -> None:
+        fake_model = _StreamingWrapperModel("voice_design")
+        engine = QwenTtsEngine(
+            QwenEngineConfig(model_path="models/qwen-voice-design"),
+            model_loader=lambda _config: fake_model,
+        )
+        engine.load()
+
+        chunks = list(
+            engine.synthesize_stream(
+                SynthesisRequest(
+                    request_id=1,
+                    text="Hello",
+                    language="auto",
+                    instruction="Low calm voice.",
+                ),
+                threading.Event(),
+            )
+        )
+
+        self.assertEqual([struct.pack("<h", -16383), struct.pack("<h", 16383)], chunks)
+        self.assertEqual(1, len(fake_model.model.stream_calls))
+        stream_call = fake_model.model.stream_calls[0]
+        self.assertEqual(["Auto"], stream_call["languages"])
+        self.assertNotIn("speakers", stream_call)
+        self.assertIsNotNone(stream_call["instruct_ids"])
+        self.assertIn("assistant:Hello", fake_model.tokenized_texts)
+        self.assertIn("instruct:Low calm voice.", fake_model.tokenized_texts)
 
     def test_voice_design_requires_instruction(self) -> None:
         engine = QwenTtsEngine(

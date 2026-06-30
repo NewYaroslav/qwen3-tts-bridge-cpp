@@ -351,10 +351,9 @@ python -m qwen_tts_bridge_worker qwen --model-path <model-or-repo>
 ```
 
 The `qwen` backend lazily loads the vendored or installed Qwen3-TTS streaming
-package only when selected. The first adapter pass supports CustomVoice and
-VoiceDesign models through full-audio generation exposed as PCM chunks. Base
-voice-clone requests, reference audio, and true incremental Qwen streaming are
-planned follow-ups.
+package only when selected. CustomVoice and VoiceDesign requests use the fork's
+incremental PCM streaming path when the loaded wrapper exposes it. Base
+voice-clone requests and reference audio remain planned follow-ups.
 
 CustomVoice models require an explicit per-request speaker name. Set
 `TtsRequest::speaker` in C++ or pass `--speaker <name>` to the WAV example.

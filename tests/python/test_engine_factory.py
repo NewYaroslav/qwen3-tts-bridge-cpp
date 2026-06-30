@@ -158,7 +158,8 @@ class EngineFactoryTests(unittest.TestCase):
         engine = create_engine(QwenEngineConfig(model_path="models/qwen"))
 
         self.assertIsInstance(engine, QwenTtsEngine)
-        self.assertFalse(engine.capabilities.streaming)
+        self.assertTrue(engine.capabilities.streaming)
+        self.assertTrue(engine.capabilities.cancellation)
         self.assertTrue(engine.capabilities.instructions)
 
     def test_worker_config_stores_only_selected_engine_config(self) -> None:

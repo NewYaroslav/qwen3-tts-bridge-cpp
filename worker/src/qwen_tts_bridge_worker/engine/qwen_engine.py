@@ -12,7 +12,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from qwen_tts_bridge_worker.config import QwenEngineConfig
 from qwen_tts_bridge_worker.engine.types import (
@@ -24,6 +24,11 @@ from qwen_tts_bridge_worker.engine.types import (
 )
 
 QwenModelLoader = Callable[[QwenEngineConfig], Any]
+
+_STREAM_EMIT_EVERY_FRAMES = 8
+_STREAM_DECODE_WINDOW_FRAMES = 80
+_STREAM_OVERLAP_SAMPLES = 0
+_STREAM_MAX_FRAMES = 10000
 
 
 class QwenEngineError(RuntimeError):
@@ -44,11 +49,11 @@ class QwenTtsEngine:
 
     @property
     def capabilities(self) -> EngineCapabilities:
-        """Return capabilities exposed by the first Qwen adapter pass."""
+        """Return capabilities exposed by the Qwen adapter."""
 
         return EngineCapabilities(
-            streaming=False,
-            cancellation=False,
+            streaming=True,
+            cancellation=True,
             instructions=True,
             voice_clone=False,
         )
@@ -108,24 +113,28 @@ class QwenTtsEngine:
         request: SynthesisRequest,
         cancel_event: threading.Event,
     ) -> Iterable[bytes]:
-        """Generate one full Qwen waveform and expose it as a PCM chunk."""
+        """Generate Qwen audio and expose it as PCM chunks."""
 
         if cancel_event.is_set():
             return
         model = self._require_model()
-        wavs, sample_rate = self._generate_audio(model, request)
-        if sample_rate != request.output.sample_rate:
-            raise QwenEngineError(
-                "qwen model returned unsupported sample rate "
-                f"{sample_rate}, expected {request.output.sample_rate}"
-            )
-
-        for wav in wavs:
-            if cancel_event.is_set():
-                return
-            pcm = _float_audio_to_s16le(wav)
-            if pcm:
-                yield pcm
+        audio_stream = self._generate_audio_stream(model, request)
+        close_stream = getattr(audio_stream, "close", None)
+        try:
+            for wav, sample_rate in audio_stream:
+                if cancel_event.is_set():
+                    return
+                if sample_rate != request.output.sample_rate:
+                    raise QwenEngineError(
+                        "qwen model returned unsupported sample rate "
+                        f"{sample_rate}, expected {request.output.sample_rate}"
+                    )
+                pcm = _float_audio_to_s16le(wav)
+                if pcm:
+                    yield pcm
+        finally:
+            if callable(close_stream):
+                close_stream()
 
     def close(self) -> None:
         """Release the loaded model reference."""
@@ -175,6 +184,17 @@ class QwenTtsEngine:
         raise QwenEngineError(
             f"unsupported qwen tts_model_type: {model_type or 'unknown'}"
         )
+
+    def _generate_audio_stream(
+        self,
+        model: Any,
+        request: SynthesisRequest,
+    ) -> Iterable[tuple[Any, int]]:
+        stream = _qwen_stream_generate_audio(model, request)
+        if stream is not None:
+            return stream
+
+        return _qwen_full_audio_as_stream(self._generate_audio(model, request))
 
 
 def _default_model_loader(config: QwenEngineConfig) -> Any:
@@ -259,6 +279,128 @@ def _qwen_language(language: str) -> str | None:
     if language.lower() == "auto":
         return None
     return language
+
+
+def _qwen_stream_generate_audio(
+    model: Any,
+    request: SynthesisRequest,
+) -> Iterable[tuple[Any, int]] | None:
+    model_type = _qwen_model_type(model)
+    language = _qwen_language(request.language)
+
+    if model_type == "custom_voice":
+        public_stream = getattr(model, "stream_generate_custom_voice", None)
+        if callable(public_stream):
+            return cast(
+                Iterable[tuple[Any, int]],
+                public_stream(
+                    text=request.text,
+                    language=language,
+                    speaker=request.speaker,
+                    instruct=request.instruction or None,
+                    emit_every_frames=_STREAM_EMIT_EVERY_FRAMES,
+                    decode_window_frames=_STREAM_DECODE_WINDOW_FRAMES,
+                    overlap_samples=_STREAM_OVERLAP_SAMPLES,
+                ),
+            )
+        return _qwen_stream_generate_pcm(
+            model,
+            text=request.text,
+            language=language,
+            speaker=request.speaker,
+            instruction=_custom_voice_instruction(model, request),
+        )
+
+    if model_type == "voice_design":
+        public_stream = getattr(model, "stream_generate_voice_design", None)
+        if callable(public_stream):
+            return cast(
+                Iterable[tuple[Any, int]],
+                public_stream(
+                    text=request.text,
+                    language=language,
+                    instruct=request.instruction,
+                    emit_every_frames=_STREAM_EMIT_EVERY_FRAMES,
+                    decode_window_frames=_STREAM_DECODE_WINDOW_FRAMES,
+                    overlap_samples=_STREAM_OVERLAP_SAMPLES,
+                ),
+            )
+        return _qwen_stream_generate_pcm(
+            model,
+            text=request.text,
+            language=language,
+            instruction=request.instruction,
+        )
+
+    return None
+
+
+def _qwen_stream_generate_pcm(
+    model: Any,
+    *,
+    text: str,
+    language: str | None,
+    speaker: str | None = None,
+    instruction: str | None = None,
+) -> Iterable[tuple[Any, int]] | None:
+    inner_model = getattr(model, "model", None)
+    stream_generate_pcm = getattr(inner_model, "stream_generate_pcm", None)
+    if not callable(stream_generate_pcm) or not _has_qwen_stream_helpers(model):
+        return None
+
+    input_ids = model._tokenize_texts([model._build_assistant_text(text)])
+    instruct_ids = None
+    if instruction:
+        instruct_ids = [
+            model._tokenize_texts([model._build_instruct_text(instruction)])[0]
+        ]
+
+    languages = [language if language is not None else "Auto"]
+    kwargs: dict[str, Any] = {
+        "input_ids": input_ids,
+        "instruct_ids": instruct_ids,
+        "languages": languages,
+        "non_streaming_mode": False,
+        "emit_every_frames": _STREAM_EMIT_EVERY_FRAMES,
+        "decode_window_frames": _STREAM_DECODE_WINDOW_FRAMES,
+        "overlap_samples": _STREAM_OVERLAP_SAMPLES,
+        "max_frames": _STREAM_MAX_FRAMES,
+    }
+    if speaker is not None:
+        kwargs["speakers"] = [speaker]
+
+    return cast(Iterable[tuple[Any, int]], stream_generate_pcm(**kwargs))
+
+
+def _has_qwen_stream_helpers(model: Any) -> bool:
+    helper_names = (
+        "_tokenize_texts",
+        "_build_assistant_text",
+        "_build_instruct_text",
+    )
+    return all(callable(getattr(model, name, None)) for name in helper_names)
+
+
+def _qwen_full_audio_as_stream(
+    generated: tuple[Iterable[Any], int],
+) -> Iterable[tuple[Any, int]]:
+    wavs, sample_rate = generated
+    return ((wav, sample_rate) for wav in wavs)
+
+
+def _custom_voice_instruction(
+    model: Any,
+    request: SynthesisRequest,
+) -> str | None:
+    if not request.instruction:
+        return None
+
+    inner_model = getattr(model, "model", None)
+    model_size = str(getattr(inner_model, "tts_model_size", ""))
+    if model_size.lower() in {"0b6", "0.6b", "0.6"}:
+        return None
+
+    return request.instruction
 
 
 def _validate_custom_voice_request(
