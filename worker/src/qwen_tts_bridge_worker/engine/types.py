@@ -74,6 +74,6 @@ class SynthesisRequest:
     request_id: int
     text: str
     language: str = "auto"
-    speaker: str = "default"
+    speaker: str = ""
     instruction: str = ""
     output: AudioFormat = field(default_factory=AudioFormat.default)

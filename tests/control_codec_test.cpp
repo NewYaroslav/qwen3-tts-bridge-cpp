@@ -68,7 +68,7 @@ void test_decode_synthesize_with_instruction_and_output() {
         "{\"message_type\":\"synthesize\","
         "\"text\":\"I thought you were not coming.\","
         "\"language\":\"English\","
-        "\"speaker\":\"default\","
+        "\"speaker\":\"Alice\","
         "\"instruction\":\"Speak with relief.\","
         "\"output\":{"
         "\"sample_format\":\"s16le\","
@@ -81,11 +81,46 @@ void test_decode_synthesize_with_instruction_and_output() {
     const auto& message = std::get<SynthesizeMessage>(result.message);
     CHECK(message.text == "I thought you were not coming.");
     CHECK(message.language == "English");
-    CHECK(message.speaker == "default");
+    CHECK(message.speaker == "Alice");
     CHECK(message.instruction == "Speak with relief.");
     CHECK(message.output.sample_format == "s16le");
     CHECK(message.output.sample_rate == 24000);
     CHECK(message.output.channels == 1);
+}
+
+void test_decode_synthesize_without_speaker() {
+    const auto result = decode_client(
+        "{\"message_type\":\"synthesize\","
+        "\"text\":\"No explicit speaker.\"}");
+
+    CHECK(result);
+    const auto& message = std::get<SynthesizeMessage>(result.message);
+    CHECK(message.text == "No explicit speaker.");
+    CHECK(message.speaker.empty());
+}
+
+void test_encode_synthesize_omits_unspecified_speaker() {
+    SynthesizeMessage message;
+    message.text = "No explicit speaker.";
+
+    const auto encoded = encode_control_message(ControlMessage{message});
+    CHECK(encoded);
+
+    const std::string payload = string_from_bytes(encoded.payload);
+    CHECK(payload.find("\"message_type\":\"synthesize\"") != std::string::npos);
+    CHECK(payload.find("\"speaker\"") == std::string::npos);
+}
+
+void test_encode_synthesize_with_explicit_speaker() {
+    SynthesizeMessage message;
+    message.text = "Explicit speaker.";
+    message.speaker = "Alice";
+
+    const auto encoded = encode_control_message(ControlMessage{message});
+    CHECK(encoded);
+
+    const std::string payload = string_from_bytes(encoded.payload);
+    CHECK(payload.find("\"speaker\":\"Alice\"") != std::string::npos);
 }
 
 void test_decode_ready() {
@@ -379,6 +414,9 @@ void test_reject_error_json_header_fields() {
 int main() {
     test_decode_hello();
     test_decode_synthesize_with_instruction_and_output();
+    test_decode_synthesize_without_speaker();
+    test_encode_synthesize_omits_unspecified_speaker();
+    test_encode_synthesize_with_explicit_speaker();
     test_decode_ready();
     test_encode_ping_round_trip();
     test_decode_started_audio_format();

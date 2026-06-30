@@ -224,7 +224,6 @@ class MockWorkerTests(unittest.TestCase):
                 "message_type": "synthesize",
                 "text": "Hello from the mock worker.",
                 "language": "English",
-                "speaker": "default",
                 "instruction": "Speak calmly.",
                 "output": {
                     "sample_format": "s16le",

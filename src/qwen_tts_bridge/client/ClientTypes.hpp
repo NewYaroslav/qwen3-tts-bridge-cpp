@@ -25,8 +25,12 @@ struct TtsRequest {
     /// \brief Natural-language or engine language name.
     std::string language = "auto";
 
-    /// \brief Worker speaker identifier or voice name.
-    std::string speaker = "default";
+    /// \brief Optional worker speaker identifier or voice name.
+    ///
+    /// Empty means no explicit speaker was selected by the application. Some
+    /// engines may choose a default voice, while Qwen CustomVoice models may
+    /// require a concrete speaker name.
+    std::string speaker;
 
     /// \brief Natural-language style, emotion, or prosody instruction.
     std::string instruction;

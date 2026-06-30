@@ -18,14 +18,17 @@ Json control_message_to_json(const ControlMessage& message) {
                 };
             }
             else if constexpr (std::is_same_v<Message, SynthesizeMessage>) {
-                return Json{
+                Json out = {
                     {kMessageType, "synthesize"},
                     {"text", value.text},
                     {"language", value.language},
-                    {"speaker", value.speaker},
                     {"instruction", value.instruction},
                     {"output", audio_format_to_json(value.output)}
                 };
+                if (!value.speaker.empty()) {
+                    out["speaker"] = value.speaker;
+                }
+                return out;
             }
             else if constexpr (std::is_same_v<Message, CancelMessage>) {
                 return Json{{kMessageType, "cancel"}};

@@ -275,7 +275,6 @@ void test_synthesize_routes_control_audio_and_completed() {
     SynthesizeMessage request;
     request.text = "Hello from WorkerSession.";
     request.language = "English";
-    request.speaker = "default";
     request.instruction = "Speak calmly.";
 
     CHECK(session.send_control(1, ControlMessage{request}));

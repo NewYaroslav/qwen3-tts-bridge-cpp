@@ -302,7 +302,7 @@ struct TtsRequest {
     std::uint64_t id = 0;
     std::string text;              // UTF-8
     std::string language = "auto";
-    std::string speaker = "default";
+    std::string speaker;           // optional per-request voice/speaker id
     std::string instruction;       // emotion, whispering, prosody, etc.
 };
 ```
@@ -340,6 +340,11 @@ UTF-8 text and instructions through to the worker without interpreting them.
 Do not mix service instructions into `text` by inventing tags such as
 `[angry]`. Keep spoken text and natural-language control separate in the
 protocol.
+
+Treat `speaker` as an optional per-request voice override, not as a universal
+`"default"` sentinel. Empty means the application did not select a voice. Do
+not send `"default"` to Qwen CustomVoice as if it were a real supported speaker
+unless that exact speaker name was advertised by the model.
 
 Expected model-family mapping:
 
