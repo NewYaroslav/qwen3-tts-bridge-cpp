@@ -426,6 +426,7 @@ The initial worker packaging scaffold uses a separate pinned tool environment:
 .\scripts\setup-python-packaging.ps1 -UseVenv
 .\scripts\package-worker.ps1 -UseVenv -DryRun
 .\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads
+.\scripts\test-packaged-worker.ps1 -UseVenv
 ```
 
 With `-UseVenv`, packaging scripts default to `.venv-packaging` so Nuitka and
@@ -448,6 +449,10 @@ dependencies visible to the selected Python environment. Use
 forced into the Nuitka dependency graph. Full PyTorch/CUDA runtime validation,
 model-file layout, transitive packaging locks, and packaged Qwen smoke tests
 remain follow-up packaging work.
+
+The packaged-worker smoke test launches `qwen_tts_worker.exe`, speaks the real
+QTB stdin/stdout protocol, sends one mock synthesis request, verifies that at
+least one PCM frame is returned, and shuts the worker down gracefully.
 
 ## Planned Milestones
 
