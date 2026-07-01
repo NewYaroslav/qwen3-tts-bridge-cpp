@@ -1,0 +1,17 @@
+- module-name: 'transformers.utils.generic' # checksum: f3e1105e
+  anti-bloat:
+    - description: 'disable model debugging context for packaged inference worker'
+      replacements_plain:
+        '    from ..model_debugging_utils import model_addition_debugger_context': "    from contextlib import contextmanager\n\n    @contextmanager\n    def model_addition_debugger_context(*args, **kwargs):\n        yield"
+
+- module-name: 'qwen_tts.core.models.modeling_qwen3_tts' # checksum: 429ca18d
+  anti-bloat:
+    - description: 'use torchaudio mel filters instead of importing librosa filters'
+      replacements_plain:
+        "def _librosa_mel_fn():\n    return import_module(\"librosa.filters\").mel": "def _librosa_mel_fn():\n    from qwen_tts_bridge_worker.packaging.qwen_runtime_shims import qwen_torchaudio_mel_filter\n\n    return qwen_torchaudio_mel_filter"
+
+- module-name: 'qwen_tts.core.tokenizer_25hz.vq.speech_vq' # checksum: 429ca18d
+  anti-bloat:
+    - description: 'use torchaudio mel filters instead of importing librosa filters'
+      replacements_plain:
+        "def _librosa_mel_fn():\n    return import_module(\"librosa.filters\").mel": "def _librosa_mel_fn():\n    from qwen_tts_bridge_worker.packaging.qwen_runtime_shims import qwen_torchaudio_mel_filter\n\n    return qwen_torchaudio_mel_filter"

@@ -463,12 +463,16 @@ they include `qwen_tts.inference`, the specific `qwen_tts.core` runtime modules
 used by model and tokenizer registration, and package data, while excluding
 `qwen_tts.cli`/demo UI paths such as Gradio, development/test-only imports,
 non-Torch `einops.layers` backends, and PyTorch compile/dynamo/inductor paths
-that the bridge worker does not call. The vendored Qwen fork keeps
-audio-reference dependencies such as `librosa` and `soundfile` behind lazy
-imports so these profiles do not pull the voice-clone preprocessing graph just
-by importing Qwen modules. `VoiceClone` adds those audio-reference dependencies
-explicitly. `Full` is a diagnostic fallback that includes the broad
-`qwen_tts` package. `-IncludeQwenPackage` is kept as a compatibility alias for
+that the bridge worker does not call. The profile also applies
+`worker/packaging/nuitka-qwen-runtime.yml`, which disables Transformers'
+debug-only model addition context and replaces Qwen's `librosa.filters.mel`
+lookups with the tested `qwen_tts_bridge_worker.packaging` `torchaudio`
+mel-filter shim during packaging. That keeps `librosa`, SciPy, and joblib out
+of the CustomVoice/VoiceDesign Nuitka graph unless a profile explicitly needs
+reference-audio preprocessing.
+`VoiceClone` adds those audio-reference dependencies explicitly. `Full` is a
+diagnostic fallback that includes the broad `qwen_tts` package.
+`-IncludeQwenPackage` is kept as a compatibility alias for
 `-QwenProfile CustomVoice`.
 
 For diagnostics, `package-worker.ps1` also accepts `-NuitkaReportPath`,
@@ -498,9 +502,10 @@ vendored Qwen import path does not eagerly load audio-reference dependencies:
 .\.venv-packaging\Scripts\python.exe worker\packaging\probe_qwen_imports.py all
 ```
 
-The probe forbids eager `librosa` and `soundfile` imports by default. SciPy may
-still be loaded by the Hugging Face `PreTrainedModel` stack and is tracked as
-separate future packaging work.
+The probe forbids eager `librosa` and `soundfile` imports by default. If SciPy
+or joblib reappears in a CustomVoice/VoiceDesign package build, inspect the
+Nuitka report first and add a narrow package-configuration replacement rather
+than widening the Qwen include graph.
 
 The Qwen probe uses the same QTB stdin/stdout protocol as the mock packaged
 smoke test, but it starts the packaged worker with the `qwen` backend and sends

@@ -981,9 +981,16 @@ scope, and `-QwenProfile Full` only as a diagnostic fallback.
 `-IncludeQwenPackage` is a compatibility alias for
 `-QwenProfile CustomVoice`.
 `worker/packaging/probe_qwen_imports.py` forbids eager `librosa` and
-`soundfile` imports by default. SciPy can still be loaded by the Hugging Face
-`PreTrainedModel` stack; treat reducing that graph as separate future packaging
-work, not as a quick `--nofollow-import-to` tweak.
+`soundfile` imports by default. The default Qwen packaging profile also applies
+`worker/packaging/nuitka-qwen-runtime.yml` to disable known compile-time bloat
+entry points: Transformers' debug-only model addition context and Qwen
+`librosa.filters.mel` lookups that can be replaced with an equivalent
+`qwen_tts_bridge_worker.packaging` `torchaudio` mel-filter shim. Keep the shim
+covered by a numerical comparison against `librosa` in packaging environments
+where both libraries are installed. If SciPy or joblib reappears in
+CustomVoice/VoiceDesign packaging, inspect the Nuitka report and add a narrow
+package-configuration replacement instead of widening the Qwen include graph or
+adding broad `--nofollow-import-to` rules.
 The default Qwen packaging profile also excludes PyTorch
 compile/dynamo/inductor/functorch paths because the bridge currently runs eager
 inference and does not call `torch.compile` or Qwen's optional streaming
