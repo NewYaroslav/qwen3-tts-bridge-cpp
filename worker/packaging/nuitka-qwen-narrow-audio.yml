@@ -1,0 +1,19 @@
+- module-name: 'qwen_tts.inference.qwen3_tts_model' # checksum: 47eb8996
+  anti-bloat:
+    - description: 'disable voice-clone audio loading in narrow Qwen packaging profiles'
+      replacements_plain:
+        "def _librosa():\n    return import_module(\"librosa\")": "def _librosa():\n    raise RuntimeError(\"librosa is packaged only by -QwenProfile VoiceClone\")"
+        "def _soundfile():\n    return import_module(\"soundfile\")": "def _soundfile():\n    raise RuntimeError(\"soundfile is packaged only by -QwenProfile VoiceClone\")"
+
+- module-name: 'qwen_tts.inference.qwen3_tts_tokenizer' # checksum: 58f005a4
+  anti-bloat:
+    - description: 'disable reference-audio tokenization in narrow Qwen packaging profiles'
+      replacements_plain:
+        "def _librosa():\n    return import_module(\"librosa\")": "def _librosa():\n    raise RuntimeError(\"librosa is packaged only by -QwenProfile VoiceClone\")"
+        "def _soundfile():\n    return import_module(\"soundfile\")": "def _soundfile():\n    raise RuntimeError(\"soundfile is packaged only by -QwenProfile VoiceClone\")"
+
+- module-name: 'transformers.audio_utils' # checksum: a7cec4cc
+  anti-bloat:
+    - description: 'avoid following optional librosa audio helpers in narrow Qwen packaging profiles'
+      no-auto-follow:
+        'librosa': 'not needed by CustomVoice or VoiceDesign packaged inference'

@@ -985,6 +985,10 @@ scope, and `-QwenProfile Full` only as a diagnostic fallback.
 `worker/packaging/nuitka-qwen-runtime.yml` to disable known compile-time bloat
 entry points: Transformers' debug-only model addition context, Transformers'
 Dynamo masking context for torch >= 2.6, and Qwen `librosa.filters.mel` lookups.
+CustomVoice and VoiceDesign additionally apply
+`worker/packaging/nuitka-qwen-narrow-audio.yml` to disable reference-audio
+loading helpers that belong to the VoiceClone profile. Do not apply those
+narrow audio replacements to `-QwenProfile VoiceClone`.
 Keep the Qwen mel shim covered by a numerical comparison against `librosa` in
 packaging environments where both libraries are installed, and keep the
 Transformers masking shim covered by a comparison against the upstream
