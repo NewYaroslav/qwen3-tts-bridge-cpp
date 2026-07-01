@@ -989,6 +989,10 @@ CustomVoice and VoiceDesign additionally apply
 `worker/packaging/nuitka-qwen-narrow-audio.yml` to disable reference-audio
 loading helpers that belong to the VoiceClone profile. Do not apply those
 narrow audio replacements to `-QwenProfile VoiceClone`.
+These narrow audio replacements are expected to remove the reference-audio
+`librosa` path from CustomVoice/VoiceDesign. SciPy may still be included
+through unrelated Transformers or Accelerate paths; treat that as separate
+packaging graph work rather than a failure of the narrow audio profile.
 Keep the Qwen mel shim covered by a numerical comparison against `librosa` in
 packaging environments where both libraries are installed, and keep the
 Transformers masking shim covered by a comparison against the upstream
