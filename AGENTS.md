@@ -969,14 +969,16 @@ availability, and the selected model family. Full transitive packaging locks
 remain later packaging work.
 `-QwenProfile CustomVoice` and `-QwenProfile VoiceDesign` mean the bridge's
 narrow Qwen runtime profile, not a broad `--include-package=qwen_tts`. Keep it
-focused on `qwen_tts.inference`, `qwen_tts.core`, and package data. Do not pull
+focused on `qwen_tts.inference`, the specific `qwen_tts.core` runtime modules
+used by model/tokenizer registration, and package data. Do not pull
 `qwen_tts.cli`, Gradio demo UI, development/test-only imports, non-Torch
-`einops.layers` backends, or the full Transformers model zoo into the default
-packaged worker graph. These profiles should not include audio-reference
-dependencies such as `librosa` and `soundfile` unless import probes show they
-are genuinely required. Use `-QwenProfile VoiceClone` when voice-clone/reference
-audio preprocessing is in scope, and `-QwenProfile Full` only as a diagnostic
-fallback. `-IncludeQwenPackage` is a compatibility alias for
+`einops.layers` backends, the entire `qwen_tts.core` tree, or the full
+Transformers model zoo into the default packaged worker graph. These profiles
+should not include audio-reference dependencies such as `librosa` and
+`soundfile` unless import probes show they are genuinely required. Use
+`-QwenProfile VoiceClone` when voice-clone/reference audio preprocessing is in
+scope, and `-QwenProfile Full` only as a diagnostic fallback.
+`-IncludeQwenPackage` is a compatibility alias for
 `-QwenProfile CustomVoice`.
 `worker/packaging/probe_qwen_imports.py` forbids eager `librosa` and
 `soundfile` imports by default. SciPy can still be loaded by the Hugging Face
