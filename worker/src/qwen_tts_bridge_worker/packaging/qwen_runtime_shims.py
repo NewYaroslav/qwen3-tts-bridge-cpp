@@ -45,3 +45,54 @@ def qwen_torchaudio_mel_filter(
         return mel_basis.astype(dtype, copy=False)
 
     return mel_basis
+
+
+def qwen_transform_get_item_to_index() -> Any:
+    """Return a small eager-mode replacement for Transformers' Dynamo helper.
+
+    Recent Transformers versions use Torch Dynamo's ``TransformGetItemToIndex``
+    around attention-mask construction. The packaged worker runs eager
+    inference and does not need the broader Dynamo/SymPy import graph, but the
+    masking helper still expects a context manager with the same tensor
+    indexing behavior.
+    """
+
+    torch = importlib.import_module("torch")
+    pytree = importlib.import_module("torch.utils._pytree")
+    torch_overrides = importlib.import_module("torch.overrides")
+    TorchFunctionMode = torch_overrides.TorchFunctionMode
+
+    class TransformGetItemToIndex(TorchFunctionMode):  # type: ignore[misc, valid-type]
+        def __torch_function__(
+            self,
+            func: Any,
+            types: Any,
+            args: tuple[Any, ...] = (),
+            kwargs: dict[str, Any] | None = None,
+        ) -> Any:
+            if kwargs is None:
+                kwargs = {}
+
+            if len(args) >= 2 and func is torch.Tensor.__getitem__:
+                tensor_to_index = args[0]
+                if isinstance(tensor_to_index, torch.Tensor):
+                    index_args = pytree.tree_leaves(args[1])
+                    if all(
+                        isinstance(value, (torch.Tensor, int))
+                        for value in index_args
+                    ):
+                        converted_indices = [
+                            torch.tensor(
+                                value,
+                                dtype=torch.int64,
+                                device=tensor_to_index.device,
+                            )
+                            if isinstance(value, int)
+                            else value
+                            for value in index_args
+                        ]
+                        return torch.ops.aten.index(tensor_to_index, converted_indices)
+
+            return func(*args, **kwargs)
+
+    return TransformGetItemToIndex

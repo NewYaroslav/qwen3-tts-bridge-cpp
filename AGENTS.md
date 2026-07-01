@@ -983,18 +983,25 @@ scope, and `-QwenProfile Full` only as a diagnostic fallback.
 `worker/packaging/probe_qwen_imports.py` forbids eager `librosa` and
 `soundfile` imports by default. The default Qwen packaging profile also applies
 `worker/packaging/nuitka-qwen-runtime.yml` to disable known compile-time bloat
-entry points: Transformers' debug-only model addition context and Qwen
-`librosa.filters.mel` lookups that can be replaced with an equivalent
-`qwen_tts_bridge_worker.packaging` `torchaudio` mel-filter shim. Keep the shim
-covered by a numerical comparison against `librosa` in packaging environments
-where both libraries are installed. If SciPy or joblib reappears in
-CustomVoice/VoiceDesign packaging, inspect the Nuitka report and add a narrow
-package-configuration replacement instead of widening the Qwen include graph or
-adding broad `--nofollow-import-to` rules.
+entry points: Transformers' debug-only model addition context, Transformers'
+Dynamo masking context for torch >= 2.6, and Qwen `librosa.filters.mel` lookups.
+Keep the Qwen mel shim covered by a numerical comparison against `librosa` in
+packaging environments where both libraries are installed, and keep the
+Transformers masking shim covered by a comparison against the upstream
+`TransformGetItemToIndex` behavior where torch/transformers are installed. If
+Dynamo, SymPy, SciPy, or joblib reappears in CustomVoice/VoiceDesign packaging,
+inspect the Nuitka report and add a narrow package-configuration replacement
+instead of widening the Qwen include graph or adding broad `--nofollow-import-to`
+rules.
 The default Qwen packaging profile also excludes PyTorch
 compile/dynamo/inductor/functorch paths because the bridge currently runs eager
 inference and does not call `torch.compile` or Qwen's optional streaming
 optimization setup in the packaged worker.
+Torch symbolic-shapes nofollow rules must stay targeted at
+`torch.fx.experimental.symbolic_shapes` and `torch.utils._sympy`. Do not
+nofollow the whole `torch.fx` package or all of `sympy`: plain eager `torch`
+startup still loads some FX modules, and downstream dependencies may
+legitimately import `sympy`.
 When investigating real Qwen packaging failures, prefer
 `worker/packaging/probe_qwen_imports.py`,
 `-NuitkaReportPath tmp\nuitka-worker\qwen-report.xml`, `-StrictBloatChecks`,
