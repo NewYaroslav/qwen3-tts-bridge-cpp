@@ -967,6 +967,18 @@ the vendored Qwen streaming fork into `.venv-packaging` with
 probe is manual because it depends on local model files, CUDA/PyTorch runtime
 availability, and the selected model family. Full transitive packaging locks
 remain later packaging work.
+`-IncludeQwenPackage` means the bridge's narrow Qwen runtime profile, not a
+broad `--include-package=qwen_tts`. Keep it focused on `qwen_tts.inference`,
+`qwen_tts.core`, and package data. Do not pull `qwen_tts.cli`, Gradio demo UI,
+development/test-only imports, non-Torch `einops.layers` backends, or the full
+Transformers model zoo into the default packaged worker graph. The default
+Qwen packaging profile also excludes PyTorch compile/dynamo/inductor/functorch
+paths because the bridge currently runs eager inference and does not call
+`torch.compile` or Qwen's optional streaming optimization setup in the packaged
+worker.
+When investigating real Qwen packaging failures, prefer
+`-NuitkaReportPath tmp\nuitka-worker\qwen-report.xml` plus targeted
+`-ExtraNuitkaOptions` over widening the include graph first.
 The GitHub Actions workflow `Packaged Worker Smoke` is manual
 (`workflow_dispatch`) by design; do not move real Nuitka compilation into every
 PR check unless the build cost becomes acceptable.

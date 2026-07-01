@@ -55,3 +55,12 @@ jobs:
       - name: Validate worker packaging command
         shell: pwsh
         run: .\scripts\package-worker.ps1 -Python python -DryRun
+
+      - name: Validate Qwen packaging command
+        shell: pwsh
+        run: >
+          .\scripts\package-worker.ps1
+          -Python python
+          -DryRun
+          -IncludeQwenPackage
+          -NuitkaReportPath tmp\nuitka-worker\qwen-report.xml

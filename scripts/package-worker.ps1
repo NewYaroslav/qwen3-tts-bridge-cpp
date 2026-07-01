@@ -9,6 +9,9 @@ param(
     [switch]$DryRun,
     [switch]$AssumeYesForDownloads,
     [switch]$IncludeQwenPackage,
+    [string]$NuitkaReportPath = "",
+    [switch]$ShowNuitkaProgress,
+    [switch]$ShowNuitkaMemory,
     [string[]]$ExtraNuitkaOptions = @()
 )
 
@@ -108,6 +111,38 @@ function Format-CommandLine {
     }) -join " "
 }
 
+function Get-QwenRuntimeNuitkaOptions {
+    return @(
+        # Include only the runtime Qwen modules used by the bridge worker.
+        # A broad --include-package=qwen_tts also pulls qwen_tts.cli/demo UI
+        # code and encourages Nuitka to inspect much more of Transformers.
+        "--include-module=qwen_tts",
+        "--include-package=qwen_tts.inference",
+        "--include-package=qwen_tts.core",
+        "--include-package-data=qwen_tts",
+        "--nofollow-import-to=qwen_tts.cli",
+        "--nofollow-import-to=gradio",
+        "--nofollow-import-to=einops.layers.flax",
+        "--nofollow-import-to=einops.layers.keras",
+        "--nofollow-import-to=einops.layers.oneflow",
+        "--nofollow-import-to=einops.layers.paddle",
+        "--nofollow-import-to=einops.layers.tensorflow",
+        "--nofollow-import-to=torch._dynamo",
+        "--nofollow-import-to=torch._functorch",
+        "--nofollow-import-to=torch._inductor",
+        "--nofollow-import-to=torch.testing._internal",
+        "--nofollow-import-to=functorch",
+        "--noinclude-setuptools-mode=nofollow",
+        "--noinclude-pytest-mode=nofollow",
+        "--noinclude-IPython-mode=nofollow",
+        "--noinclude-dask-mode=nofollow",
+        "--noinclude-numba-mode=nofollow",
+        "--module-parameter=torch-disable-jit=yes",
+        "--module-parameter=numba-disable-jit=yes",
+        "--disable-plugins=transformers"
+    )
+}
+
 if ($UseVenv) {
     $VenvPython = Resolve-VenvPython $VenvPath
     if (-not (Test-Path -LiteralPath $VenvPython)) {
@@ -126,11 +161,19 @@ $PackageRoot = Resolve-RepoPath $OutputRoot
 $NuitkaOutputRoot = Resolve-RepoPath $NuitkaWorkRoot
 $EntryPoint = Resolve-RepoPath "worker/packaging/qwen_tts_worker_entry.py"
 $WorkerSrc = Resolve-RepoPath "worker/src"
+$NuitkaReport = $null
+
+if (-not [string]::IsNullOrWhiteSpace($NuitkaReportPath)) {
+    $NuitkaReport = Resolve-RepoPath $NuitkaReportPath
+}
 
 Assert-UnderRepo $PackageRoot
 Assert-UnderRepo $NuitkaOutputRoot
 Assert-UnderRepo $EntryPoint
 Assert-UnderRepo $WorkerSrc
+if ($null -ne $NuitkaReport) {
+    Assert-UnderRepo $NuitkaReport
+}
 
 if ([string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
     $env:PYTHONPATH = $WorkerSrc
@@ -154,7 +197,19 @@ if ($AssumeYesForDownloads) {
 }
 
 if ($IncludeQwenPackage) {
-    $NuitkaArgs += "--include-package=qwen_tts"
+    $NuitkaArgs += Get-QwenRuntimeNuitkaOptions
+}
+
+if ($null -ne $NuitkaReport) {
+    $NuitkaArgs += "--report=$NuitkaReport"
+}
+
+if ($ShowNuitkaProgress) {
+    $NuitkaArgs += "--show-progress"
+}
+
+if ($ShowNuitkaMemory) {
+    $NuitkaArgs += "--show-memory"
 }
 
 $NuitkaArgs += $ExtraNuitkaOptions
@@ -174,6 +229,13 @@ if ($Clean) {
         if (Test-Path -LiteralPath $Path) {
             Remove-Item -LiteralPath $Path -Recurse -Force
         }
+    }
+}
+
+if ($null -ne $NuitkaReport) {
+    $NuitkaReportParent = Split-Path -Parent $NuitkaReport
+    if (-not [string]::IsNullOrWhiteSpace($NuitkaReportParent)) {
+        New-Item -ItemType Directory -Force -Path $NuitkaReportParent | Out-Null
     }
 }
 

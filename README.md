@@ -448,22 +448,30 @@ dist/QwenTTSBridge/
 
 By default, the script packages the bridge worker code and installed runtime
 dependencies visible to the selected Python environment. Use
-`-IncludeQwenPackage` when the `qwen_tts` package is installed and should be
-forced into the Nuitka dependency graph. Full PyTorch/CUDA runtime validation,
-model-file layout, transitive packaging locks, and packaged Qwen smoke tests
-remain follow-up packaging work.
+`-IncludeQwenPackage` when the `qwen_tts` package is installed and the Qwen
+runtime modules should be forced into the Nuitka dependency graph. This applies
+a narrow bridge runtime profile instead of broad `--include-package=qwen_tts`:
+it includes `qwen_tts.inference`, `qwen_tts.core`, and package data, while
+excluding `qwen_tts.cli`/demo UI paths such as Gradio, development/test-only
+imports, non-Torch `einops.layers` backends, and PyTorch compile/dynamo/inductor
+paths that the bridge worker does not call.
+
+For diagnostics, `package-worker.ps1` also accepts `-NuitkaReportPath`,
+`-ShowNuitkaProgress`, `-ShowNuitkaMemory`, and `-ExtraNuitkaOptions`.
+Full PyTorch/CUDA runtime validation, model-file layout, and transitive
+packaging locks remain follow-up packaging work.
 
 The packaged-worker smoke test launches `qwen_tts_worker.exe`, speaks the real
 QTB stdin/stdout protocol, sends one mock synthesis request, verifies that at
 least one PCM frame is returned, and shuts the worker down gracefully.
 
 For a local packaged Qwen probe, install the vendored streaming fork into the
-packaging environment, force `qwen_tts` into the Nuitka dependency graph, and
-run the packaged executable against a real local model:
+packaging environment, include the Qwen runtime profile, and run the packaged
+executable against a real local model:
 
 ```text
 .\scripts\setup-python-packaging.ps1 -UseVenv -InstallQwenFork
-.\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads -IncludeQwenPackage
+.\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads -IncludeQwenPackage -NuitkaReportPath tmp\nuitka-worker\qwen-report.xml
 .\scripts\test-packaged-qwen-worker.ps1 -UseVenv -ModelPath models\<model-dir> -Speaker <speaker-name>
 ```
 
