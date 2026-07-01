@@ -145,6 +145,8 @@ function Get-QwenBaseNuitkaOptions {
         "--nofollow-import-to=torch._dynamo",
         "--nofollow-import-to=torch._functorch",
         "--nofollow-import-to=torch._inductor",
+        "--nofollow-import-to=torch.fx.experimental.symbolic_shapes",
+        "--nofollow-import-to=torch.utils._sympy",
         "--nofollow-import-to=torch.testing._internal",
         "--nofollow-import-to=functorch",
         "--noinclude-setuptools-mode=nofollow",

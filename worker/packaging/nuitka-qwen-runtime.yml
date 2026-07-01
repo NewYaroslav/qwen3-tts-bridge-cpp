@@ -4,6 +4,12 @@
       replacements_plain:
         '    from ..model_debugging_utils import model_addition_debugger_context': "    from contextlib import contextmanager\n\n    @contextmanager\n    def model_addition_debugger_context(*args, **kwargs):\n        yield"
 
+- module-name: 'transformers.masking_utils' # checksum: 861f3a4b
+  anti-bloat:
+    - description: 'replace torch dynamo masking context for packaged eager inference'
+      replacements_plain:
+        "if _is_torch_greater_or_equal_than_2_6:\n    from torch._dynamo._trace_wrapped_higher_order_op import TransformGetItemToIndex": "if _is_torch_greater_or_equal_than_2_6:\n    from qwen_tts_bridge_worker.packaging.qwen_runtime_shims import qwen_transform_get_item_to_index\n\n    TransformGetItemToIndex = qwen_transform_get_item_to_index()"
+
 - module-name: 'qwen_tts.core.models.modeling_qwen3_tts' # checksum: 429ca18d
   anti-bloat:
     - description: 'use torchaudio mel filters instead of importing librosa filters'
