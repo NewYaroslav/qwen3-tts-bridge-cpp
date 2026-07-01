@@ -14,6 +14,7 @@
 
 # Python local environments and caches
 /.venv/
+/.venv-packaging/
 /venv/
 /env/
 __pycache__/
