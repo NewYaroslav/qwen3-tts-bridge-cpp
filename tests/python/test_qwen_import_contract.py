@@ -58,8 +58,24 @@ def _top_level_imports(tree: ast.Module) -> set[str]:
     for node in tree.body:
         if isinstance(node, ast.Import):
             imports.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module is not None:
-            imports.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            relative_base = f"{'.' * node.level}{base}"
+            normalized_base = relative_base.lstrip(".")
+
+            if normalized_base:
+                imports.add(normalized_base)
+
+            for alias in node.names:
+                if alias.name == "*":
+                    if normalized_base:
+                        imports.add(f"{normalized_base}.*")
+                    continue
+
+                if normalized_base:
+                    imports.add(f"{normalized_base}.{alias.name}")
+                else:
+                    imports.add(alias.name)
     return imports
 
 

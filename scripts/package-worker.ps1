@@ -148,7 +148,7 @@ function Get-QwenBaseNuitkaOptions {
 
 function Get-QwenVoiceCloneNuitkaOptions {
     return @(
-        "--include-module=librosa",
+        "--include-package=librosa",
         "--include-module=soundfile"
     )
 }
