@@ -15,6 +15,7 @@ param(
     [switch]$ShowNuitkaProgress,
     [switch]$ShowNuitkaMemory,
     [switch]$StrictBloatChecks,
+    [switch]$GenerateCOnly,
     [string[]]$ExtraNuitkaOptions = @()
 )
 
@@ -266,6 +267,10 @@ if ($StrictBloatChecks) {
     $NuitkaArgs += "--noinclude-default-mode=error"
 }
 
+if ($GenerateCOnly) {
+    $NuitkaArgs += "--generate-c-only"
+}
+
 if ($null -ne $NuitkaReport) {
     $NuitkaArgs += "--report=$NuitkaReport"
 }
@@ -306,6 +311,11 @@ if ($null -ne $NuitkaReport) {
 }
 
 Invoke-ProjectPython $NuitkaArgs
+
+if ($GenerateCOnly) {
+    Write-Host "Generated Nuitka C sources under: $NuitkaOutputRoot"
+    return
+}
 
 $ExpectedNuitkaDist = Join-Path $NuitkaOutputRoot "qwen_tts_worker_entry.dist"
 if (Test-Path -LiteralPath $ExpectedNuitkaDist) {

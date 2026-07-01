@@ -1001,11 +1001,17 @@ Torch symbolic-shapes nofollow rules must stay targeted at
 `torch.fx.experimental.symbolic_shapes` and `torch.utils._sympy`. Do not
 nofollow the whole `torch.fx` package or all of `sympy`: plain eager `torch`
 startup still loads some FX modules, and downstream dependencies may
-legitimately import `sympy`.
+legitimately import `sympy`. If Nuitka statically follows `sympy` through
+Torch FakeTensor, ProxyTensor, or runtime-assert helpers, prefer module-local
+`no-auto-follow` entries in `nuitka-qwen-runtime.yml` over a global
+`--nofollow-import-to=sympy`.
 When investigating real Qwen packaging failures, prefer
 `worker/packaging/probe_qwen_imports.py`,
 `-NuitkaReportPath tmp\nuitka-worker\qwen-report.xml`, `-StrictBloatChecks`,
-and targeted `-ExtraNuitkaOptions` over widening the include graph first.
+`-GenerateCOnly`, and targeted `-ExtraNuitkaOptions` over widening the include
+graph first. `-GenerateCOnly` is the preferred fast report-generation mode for
+Qwen dependency graph work because it avoids the long C compiler stage and does
+not stage a worker executable.
 The GitHub Actions workflow `Packaged Worker Smoke` is manual
 (`workflow_dispatch`) by design; do not move real Nuitka compilation into every
 PR check unless the build cost becomes acceptable.

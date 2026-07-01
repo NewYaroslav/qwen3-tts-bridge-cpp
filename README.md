@@ -470,9 +470,10 @@ context with a tested eager-inference shim, and replaces Qwen's
 `librosa.filters.mel` lookups with the tested
 `qwen_tts_bridge_worker.packaging` `torchaudio` mel-filter shim during
 packaging. That keeps Torch Dynamo's symbolic-shapes branch and
-`librosa`/SciPy/joblib out of the CustomVoice/VoiceDesign Nuitka graph unless a
+Torch FakeTensor/ProxyTensor/runtime-assert `sympy` helper branches, plus
+`librosa`/SciPy/joblib, out of the CustomVoice/VoiceDesign Nuitka graph unless a
 profile explicitly needs those paths. The profile nofollow rules intentionally
-target only Torch's symbolic-shapes helper modules, not the whole `torch.fx`
+target only known eager-unused symbolic helper imports, not the whole `torch.fx`
 package or all of `sympy`, because plain eager `torch` startup still uses some
 FX modules and downstream dependencies may legitimately import `sympy`.
 `VoiceClone` adds audio-reference dependencies explicitly. `Full` is a
@@ -481,8 +482,11 @@ diagnostic fallback that includes the broad `qwen_tts` package.
 `-QwenProfile CustomVoice`.
 
 For diagnostics, `package-worker.ps1` also accepts `-NuitkaReportPath`,
-`-ShowNuitkaProgress`, `-ShowNuitkaMemory`, `-StrictBloatChecks`, and
-`-ExtraNuitkaOptions`.
+`-ShowNuitkaProgress`, `-ShowNuitkaMemory`, `-StrictBloatChecks`,
+`-GenerateCOnly`, and `-ExtraNuitkaOptions`. Use `-GenerateCOnly` with a report
+path when iterating on Qwen dependency graph reductions; it stops after Nuitka
+Python-level optimization and C source generation instead of expecting a staged
+worker executable.
 Full PyTorch/CUDA runtime validation, model-file layout, and transitive
 packaging locks remain follow-up packaging work.
 
