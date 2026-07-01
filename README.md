@@ -459,10 +459,11 @@ into the Nuitka dependency graph:
 ```
 
 `CustomVoice` and `VoiceDesign` apply the bridge's narrow Qwen runtime profile:
-they include `qwen_tts.inference`, `qwen_tts.core`, and package data, while
-excluding `qwen_tts.cli`/demo UI paths such as Gradio, development/test-only
-imports, non-Torch `einops.layers` backends, and PyTorch compile/dynamo/inductor
-paths that the bridge worker does not call. The vendored Qwen fork keeps
+they include `qwen_tts.inference`, the specific `qwen_tts.core` runtime modules
+used by model and tokenizer registration, and package data, while excluding
+`qwen_tts.cli`/demo UI paths such as Gradio, development/test-only imports,
+non-Torch `einops.layers` backends, and PyTorch compile/dynamo/inductor paths
+that the bridge worker does not call. The vendored Qwen fork keeps
 audio-reference dependencies such as `librosa` and `soundfile` behind lazy
 imports so these profiles do not pull the voice-clone preprocessing graph just
 by importing Qwen modules. `VoiceClone` adds those audio-reference dependencies
