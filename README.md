@@ -466,9 +466,10 @@ non-Torch `einops.layers` backends, and PyTorch compile/dynamo/inductor paths
 that the bridge worker does not call. The profile also applies
 `worker/packaging/nuitka-qwen-runtime.yml`, which disables Transformers'
 debug-only model addition context and replaces Qwen's `librosa.filters.mel`
-lookups with an equivalent `torchaudio` mel-filter shim during packaging. That
-keeps `librosa`, SciPy, and joblib out of the CustomVoice/VoiceDesign Nuitka
-graph unless a profile explicitly needs reference-audio preprocessing.
+lookups with the tested `qwen_tts_bridge_worker.packaging` `torchaudio`
+mel-filter shim during packaging. That keeps `librosa`, SciPy, and joblib out
+of the CustomVoice/VoiceDesign Nuitka graph unless a profile explicitly needs
+reference-audio preprocessing.
 `VoiceClone` adds those audio-reference dependencies explicitly. `Full` is a
 diagnostic fallback that includes the broad `qwen_tts` package.
 `-IncludeQwenPackage` is kept as a compatibility alias for

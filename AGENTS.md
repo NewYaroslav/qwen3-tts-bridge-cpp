@@ -985,7 +985,9 @@ scope, and `-QwenProfile Full` only as a diagnostic fallback.
 `worker/packaging/nuitka-qwen-runtime.yml` to disable known compile-time bloat
 entry points: Transformers' debug-only model addition context and Qwen
 `librosa.filters.mel` lookups that can be replaced with an equivalent
-`torchaudio` mel-filter shim. If SciPy or joblib reappears in
+`qwen_tts_bridge_worker.packaging` `torchaudio` mel-filter shim. Keep the shim
+covered by a numerical comparison against `librosa` in packaging environments
+where both libraries are installed. If SciPy or joblib reappears in
 CustomVoice/VoiceDesign packaging, inspect the Nuitka report and add a narrow
 package-configuration replacement instead of widening the Qwen include graph or
 adding broad `--nofollow-import-to` rules.
