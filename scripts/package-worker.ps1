@@ -115,10 +115,13 @@ function Format-CommandLine {
 }
 
 function Get-QwenBaseNuitkaOptions {
+    $QwenNuitkaConfig = Resolve-RepoPath "worker/packaging/nuitka-qwen-runtime.yml"
+
     return @(
         # Include only the runtime Qwen modules used by the bridge worker.
         # A broad --include-package=qwen_tts also pulls qwen_tts.cli/demo UI
         # code and encourages Nuitka to inspect much more of Transformers.
+        "--user-package-configuration-file=$QwenNuitkaConfig",
         "--include-module=qwen_tts",
         "--include-package=qwen_tts.inference",
         "--include-module=qwen_tts.core",
