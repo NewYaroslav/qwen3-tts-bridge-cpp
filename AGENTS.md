@@ -962,23 +962,34 @@ After a real package build, run `test-packaged-worker.ps1` against the mock
 backend before changing release layout. For local real-model validation, install
 the vendored Qwen streaming fork into `.venv-packaging` with
 `setup-python-packaging.ps1 -InstallQwenFork`, package with
-`package-worker.ps1 -IncludeQwenPackage`, and run
+`package-worker.ps1 -QwenProfile CustomVoice`, and run
 `test-packaged-qwen-worker.ps1` against a local model path. The Qwen packaged
 probe is manual because it depends on local model files, CUDA/PyTorch runtime
 availability, and the selected model family. Full transitive packaging locks
 remain later packaging work.
-`-IncludeQwenPackage` means the bridge's narrow Qwen runtime profile, not a
-broad `--include-package=qwen_tts`. Keep it focused on `qwen_tts.inference`,
-`qwen_tts.core`, and package data. Do not pull `qwen_tts.cli`, Gradio demo UI,
-development/test-only imports, non-Torch `einops.layers` backends, or the full
-Transformers model zoo into the default packaged worker graph. The default
-Qwen packaging profile also excludes PyTorch compile/dynamo/inductor/functorch
-paths because the bridge currently runs eager inference and does not call
-`torch.compile` or Qwen's optional streaming optimization setup in the packaged
-worker.
+`-QwenProfile CustomVoice` and `-QwenProfile VoiceDesign` mean the bridge's
+narrow Qwen runtime profile, not a broad `--include-package=qwen_tts`. Keep it
+focused on `qwen_tts.inference`, `qwen_tts.core`, and package data. Do not pull
+`qwen_tts.cli`, Gradio demo UI, development/test-only imports, non-Torch
+`einops.layers` backends, or the full Transformers model zoo into the default
+packaged worker graph. These profiles should not include audio-reference
+dependencies such as `librosa` and `soundfile` unless import probes show they
+are genuinely required. Use `-QwenProfile VoiceClone` when voice-clone/reference
+audio preprocessing is in scope, and `-QwenProfile Full` only as a diagnostic
+fallback. `-IncludeQwenPackage` is a compatibility alias for
+`-QwenProfile CustomVoice`.
+`worker/packaging/probe_qwen_imports.py` forbids eager `librosa` and
+`soundfile` imports by default. SciPy can still be loaded by the Hugging Face
+`PreTrainedModel` stack; treat reducing that graph as separate future packaging
+work, not as a quick `--nofollow-import-to` tweak.
+The default Qwen packaging profile also excludes PyTorch
+compile/dynamo/inductor/functorch paths because the bridge currently runs eager
+inference and does not call `torch.compile` or Qwen's optional streaming
+optimization setup in the packaged worker.
 When investigating real Qwen packaging failures, prefer
-`-NuitkaReportPath tmp\nuitka-worker\qwen-report.xml` plus targeted
-`-ExtraNuitkaOptions` over widening the include graph first.
+`worker/packaging/probe_qwen_imports.py`,
+`-NuitkaReportPath tmp\nuitka-worker\qwen-report.xml`, `-StrictBloatChecks`,
+and targeted `-ExtraNuitkaOptions` over widening the include graph first.
 The GitHub Actions workflow `Packaged Worker Smoke` is manual
 (`workflow_dispatch`) by design; do not move real Nuitka compilation into every
 PR check unless the build cost becomes acceptable.

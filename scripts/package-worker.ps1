@@ -9,9 +9,12 @@ param(
     [switch]$DryRun,
     [switch]$AssumeYesForDownloads,
     [switch]$IncludeQwenPackage,
+    [ValidateSet("None", "CustomVoice", "VoiceDesign", "VoiceClone", "Full")]
+    [string]$QwenProfile = "None",
     [string]$NuitkaReportPath = "",
     [switch]$ShowNuitkaProgress,
     [switch]$ShowNuitkaMemory,
+    [switch]$StrictBloatChecks,
     [string[]]$ExtraNuitkaOptions = @()
 )
 
@@ -111,7 +114,7 @@ function Format-CommandLine {
     }) -join " "
 }
 
-function Get-QwenRuntimeNuitkaOptions {
+function Get-QwenBaseNuitkaOptions {
     return @(
         # Include only the runtime Qwen modules used by the bridge worker.
         # A broad --include-package=qwen_tts also pulls qwen_tts.cli/demo UI
@@ -141,6 +144,46 @@ function Get-QwenRuntimeNuitkaOptions {
         "--module-parameter=numba-disable-jit=yes",
         "--disable-plugins=transformers"
     )
+}
+
+function Get-QwenVoiceCloneNuitkaOptions {
+    return @(
+        "--include-module=librosa",
+        "--include-module=soundfile"
+    )
+}
+
+function Get-QwenFullNuitkaOptions {
+    return @(
+        "--include-package=qwen_tts",
+        "--include-package-data=qwen_tts"
+    )
+}
+
+function Get-QwenProfileNuitkaOptions {
+    param(
+        [string]$Profile
+    )
+
+    switch ($Profile) {
+        "None" {
+            return @()
+        }
+        "CustomVoice" {
+            return Get-QwenBaseNuitkaOptions
+        }
+        "VoiceDesign" {
+            return Get-QwenBaseNuitkaOptions
+        }
+        "VoiceClone" {
+            return (Get-QwenBaseNuitkaOptions) + (Get-QwenVoiceCloneNuitkaOptions)
+        }
+        "Full" {
+            return Get-QwenFullNuitkaOptions
+        }
+    }
+
+    throw "Unsupported QwenProfile: $Profile"
 }
 
 if ($UseVenv) {
@@ -197,7 +240,16 @@ if ($AssumeYesForDownloads) {
 }
 
 if ($IncludeQwenPackage) {
-    $NuitkaArgs += Get-QwenRuntimeNuitkaOptions
+    if ($QwenProfile -ne "None") {
+        throw "-IncludeQwenPackage cannot be combined with -QwenProfile $QwenProfile."
+    }
+    $QwenProfile = "CustomVoice"
+}
+
+$NuitkaArgs += Get-QwenProfileNuitkaOptions $QwenProfile
+
+if ($StrictBloatChecks) {
+    $NuitkaArgs += "--noinclude-default-mode=error"
 }
 
 if ($null -ne $NuitkaReport) {
