@@ -447,17 +447,32 @@ dist/QwenTTSBridge/
 ```
 
 By default, the script packages the bridge worker code and installed runtime
-dependencies visible to the selected Python environment. Use
-`-IncludeQwenPackage` when the `qwen_tts` package is installed and the Qwen
-runtime modules should be forced into the Nuitka dependency graph. This applies
-a narrow bridge runtime profile instead of broad `--include-package=qwen_tts`:
-it includes `qwen_tts.inference`, `qwen_tts.core`, and package data, while
+dependencies visible to the selected Python environment. Use `-QwenProfile` when
+the `qwen_tts` package is installed and Qwen runtime modules should be forced
+into the Nuitka dependency graph:
+
+```text
+.\scripts\package-worker.ps1 -UseVenv -QwenProfile CustomVoice
+.\scripts\package-worker.ps1 -UseVenv -QwenProfile VoiceDesign
+.\scripts\package-worker.ps1 -UseVenv -QwenProfile VoiceClone
+.\scripts\package-worker.ps1 -UseVenv -QwenProfile Full
+```
+
+`CustomVoice` and `VoiceDesign` apply the bridge's narrow Qwen runtime profile:
+they include `qwen_tts.inference`, `qwen_tts.core`, and package data, while
 excluding `qwen_tts.cli`/demo UI paths such as Gradio, development/test-only
 imports, non-Torch `einops.layers` backends, and PyTorch compile/dynamo/inductor
-paths that the bridge worker does not call.
+paths that the bridge worker does not call. The vendored Qwen fork keeps
+audio-reference dependencies such as `librosa` and `soundfile` behind lazy
+imports so these profiles do not pull the voice-clone preprocessing graph just
+by importing Qwen modules. `VoiceClone` adds those audio-reference dependencies
+explicitly. `Full` is a diagnostic fallback that includes the broad
+`qwen_tts` package. `-IncludeQwenPackage` is kept as a compatibility alias for
+`-QwenProfile CustomVoice`.
 
 For diagnostics, `package-worker.ps1` also accepts `-NuitkaReportPath`,
-`-ShowNuitkaProgress`, `-ShowNuitkaMemory`, and `-ExtraNuitkaOptions`.
+`-ShowNuitkaProgress`, `-ShowNuitkaMemory`, `-StrictBloatChecks`, and
+`-ExtraNuitkaOptions`.
 Full PyTorch/CUDA runtime validation, model-file layout, and transitive
 packaging locks remain follow-up packaging work.
 
@@ -471,9 +486,20 @@ executable against a real local model:
 
 ```text
 .\scripts\setup-python-packaging.ps1 -UseVenv -InstallQwenFork
-.\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads -IncludeQwenPackage -NuitkaReportPath tmp\nuitka-worker\qwen-report.xml
+.\scripts\package-worker.ps1 -UseVenv -Clean -AssumeYesForDownloads -QwenProfile CustomVoice -NuitkaReportPath tmp\nuitka-worker\qwen-report.xml
 .\scripts\test-packaged-qwen-worker.ps1 -UseVenv -ModelPath models\<model-dir> -Speaker <speaker-name>
 ```
+
+Before a long real package build, the import probe can confirm that the selected
+vendored Qwen import path does not eagerly load audio-reference dependencies:
+
+```text
+.\.venv-packaging\Scripts\python.exe worker\packaging\probe_qwen_imports.py all
+```
+
+The probe forbids eager `librosa` and `soundfile` imports by default. SciPy may
+still be loaded by the Hugging Face `PreTrainedModel` stack and is tracked as
+separate future packaging work.
 
 The Qwen probe uses the same QTB stdin/stdout protocol as the mock packaged
 smoke test, but it starts the packaged worker with the `qwen` backend and sends

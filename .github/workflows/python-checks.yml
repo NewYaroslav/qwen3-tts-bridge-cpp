@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/python-checks.yml"
       - ".github/workflows/packaged-worker-smoke.yml"
+      - "external/python/**"
       - "pyproject.toml"
       - "scripts/check-python.ps1"
       - "scripts/package-worker.ps1"
@@ -20,6 +21,7 @@ on:
     paths:
       - ".github/workflows/python-checks.yml"
       - ".github/workflows/packaged-worker-smoke.yml"
+      - "external/python/**"
       - "pyproject.toml"
       - "scripts/check-python.ps1"
       - "scripts/package-worker.ps1"
@@ -38,6 +40,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -62,5 +66,5 @@ jobs:
           .\scripts\package-worker.ps1
           -Python python
           -DryRun
-          -IncludeQwenPackage
+          -QwenProfile CustomVoice
           -NuitkaReportPath tmp\nuitka-worker\qwen-report.xml
