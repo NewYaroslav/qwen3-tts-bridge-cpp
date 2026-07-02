@@ -244,6 +244,19 @@ external/python/Qwen3-TTS-streaming/
     https://github.com/NewYaroslav/Qwen3-TTS-streaming
 ```
 
+Future Rust Qwen engine candidate:
+
+```text
+https://github.com/NewYaroslav/qwen3-tts-rs
+```
+
+This Rust fork is not part of the current Python worker dependency graph. Keep
+it in mind as a possible future alternative engine backend once the bridge
+supports selecting non-Python engines. It documents the official Qwen3-TTS
+model families and HuggingFace repositories, including
+`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`, which is a practical local smoke-test
+candidate with preset speakers such as `ryan` and `serena`.
+
 Future WebSocket dependencies:
 
 ```text
@@ -985,6 +998,14 @@ scope, and `-QwenProfile Full` only as a diagnostic fallback.
 `worker/packaging/nuitka-qwen-runtime.yml` to disable known compile-time bloat
 entry points: Transformers' debug-only model addition context, Transformers'
 Dynamo masking context for torch >= 2.6, and Qwen `librosa.filters.mel` lookups.
+CustomVoice and VoiceDesign additionally apply
+`worker/packaging/nuitka-qwen-narrow-audio.yml` to disable reference-audio
+loading helpers that belong to the VoiceClone profile. Do not apply those
+narrow audio replacements to `-QwenProfile VoiceClone`.
+These narrow audio replacements are expected to remove the reference-audio
+`librosa` path from CustomVoice/VoiceDesign. SciPy may still be included
+through unrelated Transformers or Accelerate paths; treat that as separate
+packaging graph work rather than a failure of the narrow audio profile.
 Keep the Qwen mel shim covered by a numerical comparison against `librosa` in
 packaging environments where both libraries are installed, and keep the
 Transformers masking shim covered by a comparison against the upstream

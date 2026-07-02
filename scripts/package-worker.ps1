@@ -115,14 +115,34 @@ function Format-CommandLine {
     }) -join " "
 }
 
-function Get-QwenBaseNuitkaOptions {
-    $QwenNuitkaConfig = Resolve-RepoPath "worker/packaging/nuitka-qwen-runtime.yml"
+function Get-QwenPackageConfigOptions {
+    param(
+        [string]$Profile
+    )
+
+    $ConfigPaths = @("worker/packaging/nuitka-qwen-runtime.yml")
+    if ($Profile -in @("CustomVoice", "VoiceDesign")) {
+        $ConfigPaths += "worker/packaging/nuitka-qwen-narrow-audio.yml"
+    }
 
     return @(
+        $ConfigPaths | ForEach-Object {
+            "--user-package-configuration-file=$(Resolve-RepoPath $_)"
+        }
+    )
+}
+
+function Get-QwenBaseNuitkaOptions {
+    param(
+        [string]$Profile
+    )
+
+    $Options = @(Get-QwenPackageConfigOptions $Profile)
+
+    return $Options + @(
         # Include only the runtime Qwen modules used by the bridge worker.
         # A broad --include-package=qwen_tts also pulls qwen_tts.cli/demo UI
         # code and encourages Nuitka to inspect much more of Transformers.
-        "--user-package-configuration-file=$QwenNuitkaConfig",
         "--include-module=qwen_tts",
         "--include-package=qwen_tts.inference",
         "--include-module=qwen_tts.core",
@@ -185,13 +205,13 @@ function Get-QwenProfileNuitkaOptions {
             return @()
         }
         "CustomVoice" {
-            return Get-QwenBaseNuitkaOptions
+            return Get-QwenBaseNuitkaOptions $Profile
         }
         "VoiceDesign" {
-            return Get-QwenBaseNuitkaOptions
+            return Get-QwenBaseNuitkaOptions $Profile
         }
         "VoiceClone" {
-            return (Get-QwenBaseNuitkaOptions) + (Get-QwenVoiceCloneNuitkaOptions)
+            return (Get-QwenBaseNuitkaOptions $Profile) + (Get-QwenVoiceCloneNuitkaOptions)
         }
         "Full" {
             return Get-QwenFullNuitkaOptions
