@@ -244,6 +244,19 @@ external/python/Qwen3-TTS-streaming/
     https://github.com/NewYaroslav/Qwen3-TTS-streaming
 ```
 
+Future Rust Qwen engine candidate:
+
+```text
+https://github.com/NewYaroslav/qwen3-tts-rs
+```
+
+This Rust fork is not part of the current Python worker dependency graph. Keep
+it in mind as a possible future alternative engine backend once the bridge
+supports selecting non-Python engines. It documents the official Qwen3-TTS
+model families and HuggingFace repositories, including
+`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`, which is a practical local smoke-test
+candidate with preset speakers such as `ryan` and `serena`.
+
 Future WebSocket dependencies:
 
 ```text
@@ -985,6 +998,14 @@ scope, and `-QwenProfile Full` only as a diagnostic fallback.
 `worker/packaging/nuitka-qwen-runtime.yml` to disable known compile-time bloat
 entry points: Transformers' debug-only model addition context, Transformers'
 Dynamo masking context for torch >= 2.6, and Qwen `librosa.filters.mel` lookups.
+CustomVoice and VoiceDesign additionally apply
+`worker/packaging/nuitka-qwen-narrow-audio.yml` to disable reference-audio
+loading helpers that belong to the VoiceClone profile. Do not apply those
+narrow audio replacements to `-QwenProfile VoiceClone`.
+These narrow audio replacements are expected to remove the reference-audio
+`librosa` path from CustomVoice/VoiceDesign. SciPy may still be included
+through unrelated Transformers or Accelerate paths; treat that as separate
+packaging graph work rather than a failure of the narrow audio profile.
 Keep the Qwen mel shim covered by a numerical comparison against `librosa` in
 packaging environments where both libraries are installed, and keep the
 Transformers masking shim covered by a comparison against the upstream
@@ -1001,11 +1022,17 @@ Torch symbolic-shapes nofollow rules must stay targeted at
 `torch.fx.experimental.symbolic_shapes` and `torch.utils._sympy`. Do not
 nofollow the whole `torch.fx` package or all of `sympy`: plain eager `torch`
 startup still loads some FX modules, and downstream dependencies may
-legitimately import `sympy`.
+legitimately import `sympy`. If Nuitka statically follows `sympy` through
+Torch FakeTensor, ProxyTensor, or runtime-assert helpers, prefer module-local
+`no-auto-follow` entries in `nuitka-qwen-runtime.yml` over a global
+`--nofollow-import-to=sympy`.
 When investigating real Qwen packaging failures, prefer
 `worker/packaging/probe_qwen_imports.py`,
 `-NuitkaReportPath tmp\nuitka-worker\qwen-report.xml`, `-StrictBloatChecks`,
-and targeted `-ExtraNuitkaOptions` over widening the include graph first.
+`-GenerateCOnly`, and targeted `-ExtraNuitkaOptions` over widening the include
+graph first. `-GenerateCOnly` is the preferred fast report-generation mode for
+Qwen dependency graph work because it avoids the long C compiler stage and does
+not stage a worker executable.
 The GitHub Actions workflow `Packaged Worker Smoke` is manual
 (`workflow_dispatch`) by design; do not move real Nuitka compilation into every
 PR check unless the build cost becomes acceptable.

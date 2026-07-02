@@ -15,6 +15,7 @@ param(
     [switch]$ShowNuitkaProgress,
     [switch]$ShowNuitkaMemory,
     [switch]$StrictBloatChecks,
+    [switch]$GenerateCOnly,
     [string[]]$ExtraNuitkaOptions = @()
 )
 
@@ -114,14 +115,34 @@ function Format-CommandLine {
     }) -join " "
 }
 
-function Get-QwenBaseNuitkaOptions {
-    $QwenNuitkaConfig = Resolve-RepoPath "worker/packaging/nuitka-qwen-runtime.yml"
+function Get-QwenPackageConfigOptions {
+    param(
+        [string]$Profile
+    )
+
+    $ConfigPaths = @("worker/packaging/nuitka-qwen-runtime.yml")
+    if ($Profile -in @("CustomVoice", "VoiceDesign")) {
+        $ConfigPaths += "worker/packaging/nuitka-qwen-narrow-audio.yml"
+    }
 
     return @(
+        $ConfigPaths | ForEach-Object {
+            "--user-package-configuration-file=$(Resolve-RepoPath $_)"
+        }
+    )
+}
+
+function Get-QwenBaseNuitkaOptions {
+    param(
+        [string]$Profile
+    )
+
+    $Options = @(Get-QwenPackageConfigOptions $Profile)
+
+    return $Options + @(
         # Include only the runtime Qwen modules used by the bridge worker.
         # A broad --include-package=qwen_tts also pulls qwen_tts.cli/demo UI
         # code and encourages Nuitka to inspect much more of Transformers.
-        "--user-package-configuration-file=$QwenNuitkaConfig",
         "--include-module=qwen_tts",
         "--include-package=qwen_tts.inference",
         "--include-module=qwen_tts.core",
@@ -184,13 +205,13 @@ function Get-QwenProfileNuitkaOptions {
             return @()
         }
         "CustomVoice" {
-            return Get-QwenBaseNuitkaOptions
+            return Get-QwenBaseNuitkaOptions $Profile
         }
         "VoiceDesign" {
-            return Get-QwenBaseNuitkaOptions
+            return Get-QwenBaseNuitkaOptions $Profile
         }
         "VoiceClone" {
-            return (Get-QwenBaseNuitkaOptions) + (Get-QwenVoiceCloneNuitkaOptions)
+            return (Get-QwenBaseNuitkaOptions $Profile) + (Get-QwenVoiceCloneNuitkaOptions)
         }
         "Full" {
             return Get-QwenFullNuitkaOptions
@@ -266,6 +287,10 @@ if ($StrictBloatChecks) {
     $NuitkaArgs += "--noinclude-default-mode=error"
 }
 
+if ($GenerateCOnly) {
+    $NuitkaArgs += "--generate-c-only"
+}
+
 if ($null -ne $NuitkaReport) {
     $NuitkaArgs += "--report=$NuitkaReport"
 }
@@ -306,6 +331,11 @@ if ($null -ne $NuitkaReport) {
 }
 
 Invoke-ProjectPython $NuitkaArgs
+
+if ($GenerateCOnly) {
+    Write-Host "Generated Nuitka C sources under: $NuitkaOutputRoot"
+    return
+}
 
 $ExpectedNuitkaDist = Join-Path $NuitkaOutputRoot "qwen_tts_worker_entry.dist"
 if (Test-Path -LiteralPath $ExpectedNuitkaDist) {

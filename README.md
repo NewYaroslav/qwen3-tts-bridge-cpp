@@ -469,20 +469,29 @@ debug-only model addition context, replaces Transformers' Dynamo masking
 context with a tested eager-inference shim, and replaces Qwen's
 `librosa.filters.mel` lookups with the tested
 `qwen_tts_bridge_worker.packaging` `torchaudio` mel-filter shim during
-packaging. That keeps Torch Dynamo's symbolic-shapes branch and
-`librosa`/SciPy/joblib out of the CustomVoice/VoiceDesign Nuitka graph unless a
-profile explicitly needs those paths. The profile nofollow rules intentionally
-target only Torch's symbolic-shapes helper modules, not the whole `torch.fx`
-package or all of `sympy`, because plain eager `torch` startup still uses some
-FX modules and downstream dependencies may legitimately import `sympy`.
+packaging. CustomVoice and VoiceDesign also apply
+`worker/packaging/nuitka-qwen-narrow-audio.yml`, which disables Qwen
+reference-audio loading helpers that belong to the VoiceClone profile. That
+keeps Torch Dynamo's symbolic-shapes branch, Torch
+FakeTensor/ProxyTensor/runtime-assert `sympy` helper branches, plus the
+reference-audio `librosa` path, out of the narrow Qwen Nuitka graph unless a
+profile explicitly needs those paths. SciPy may still be included through
+unrelated Transformers or Accelerate paths; reducing that graph is separate
+packaging work. The profile nofollow rules intentionally target only known
+eager-unused symbolic helper imports, not the whole `torch.fx` package or all
+of `sympy`, because plain eager `torch` startup still uses some FX modules and
+downstream dependencies may legitimately import `sympy`.
 `VoiceClone` adds audio-reference dependencies explicitly. `Full` is a
 diagnostic fallback that includes the broad `qwen_tts` package.
 `-IncludeQwenPackage` is kept as a compatibility alias for
 `-QwenProfile CustomVoice`.
 
 For diagnostics, `package-worker.ps1` also accepts `-NuitkaReportPath`,
-`-ShowNuitkaProgress`, `-ShowNuitkaMemory`, `-StrictBloatChecks`, and
-`-ExtraNuitkaOptions`.
+`-ShowNuitkaProgress`, `-ShowNuitkaMemory`, `-StrictBloatChecks`,
+`-GenerateCOnly`, and `-ExtraNuitkaOptions`. Use `-GenerateCOnly` with a report
+path when iterating on Qwen dependency graph reductions; it stops after Nuitka
+Python-level optimization and C source generation instead of expecting a staged
+worker executable.
 Full PyTorch/CUDA runtime validation, model-file layout, and transitive
 packaging locks remain follow-up packaging work.
 

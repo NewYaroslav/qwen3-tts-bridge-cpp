@@ -10,6 +10,24 @@
       replacements_plain:
         "if _is_torch_greater_or_equal_than_2_6:\n    from torch._dynamo._trace_wrapped_higher_order_op import TransformGetItemToIndex": "if _is_torch_greater_or_equal_than_2_6:\n    from qwen_tts_bridge_worker.packaging.qwen_runtime_shims import qwen_transform_get_item_to_index\n\n    TransformGetItemToIndex = qwen_transform_get_item_to_index()"
 
+- module-name: 'torch._subclasses.fake_tensor' # checksum: 17d312f9
+  anti-bloat:
+    - description: 'avoid following fake tensor sympy helpers for packaged eager inference'
+      no-auto-follow:
+        'sympy': 'not needed by Qwen eager inference packaging profile'
+
+- module-name: 'torch.fx.experimental.proxy_tensor' # checksum: d2f308aa
+  anti-bloat:
+    - description: 'avoid following proxy tensor sympy helpers for packaged eager inference'
+      no-auto-follow:
+        'sympy': 'not needed by Qwen eager inference packaging profile'
+
+- module-name: 'torch.fx.passes.runtime_assert' # checksum: fa954b79
+  anti-bloat:
+    - description: 'avoid following runtime assert sympy helpers for packaged eager inference'
+      no-auto-follow:
+        'sympy': 'not needed by Qwen eager inference packaging profile'
+
 - module-name: 'qwen_tts.core.models.modeling_qwen3_tts' # checksum: 429ca18d
   anti-bloat:
     - description: 'use torchaudio mel filters instead of importing librosa filters'
