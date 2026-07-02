@@ -244,6 +244,19 @@ external/python/Qwen3-TTS-streaming/
     https://github.com/NewYaroslav/Qwen3-TTS-streaming
 ```
 
+Future Rust Qwen engine candidate:
+
+```text
+https://github.com/NewYaroslav/qwen3-tts-rs
+```
+
+This Rust fork is not part of the current Python worker dependency graph. Keep
+it in mind as a possible future alternative engine backend once the bridge
+supports selecting non-Python engines. It documents the official Qwen3-TTS
+model families and HuggingFace repositories, including
+`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`, which is a practical local smoke-test
+candidate with preset speakers such as `ryan` and `serena`.
+
 Future WebSocket dependencies:
 
 ```text
